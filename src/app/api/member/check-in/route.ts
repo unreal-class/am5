@@ -40,15 +40,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: meetingError?.message ?? "모임 생성에 실패했습니다." }, { status: 400 });
   }
 
-  const { error: attendanceError } = await admin.from("attendances").upsert(
-    {
-      meeting_id: meeting.id,
-      member_id: gate.user.id,
-      checked_in_at: now,
-      checked_out_at: null
-    },
-    { onConflict: "meeting_id,member_id" }
-  );
+  const { data: activeAttendance, error: activeLookupError } = await admin
+    .from("attendances")
+    .select("id")
+    .eq("meeting_id", meeting.id)
+    .eq("member_id", gate.user.id)
+    .is("checked_out_at", null)
+    .maybeSingle();
+
+  if (activeLookupError) {
+    return NextResponse.json({ message: activeLookupError.message }, { status: 400 });
+  }
+
+  if (activeAttendance) {
+    return NextResponse.json({ message: "이미 출석 중입니다." }, { status: 400 });
+  }
+
+  const { error: attendanceError } = await admin.from("attendances").insert({
+    meeting_id: meeting.id,
+    member_id: gate.user.id,
+    checked_in_at: now,
+    checked_out_at: null
+  });
 
   if (attendanceError) {
     return NextResponse.json({ message: attendanceError.message }, { status: 400 });

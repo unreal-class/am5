@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   CalendarPlus,
   CheckCircle2,
   ClipboardList,
@@ -54,8 +55,8 @@ import { generateMatches } from "@/lib/scheduler";
 import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-type Tab = "today" | "draw" | "ranking" | "me" | "admin" | "test" | "courts";
-type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role">;
+type Tab = "today" | "draw" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
+type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role" | "seed_win_rate">;
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
   id: string;
@@ -1057,11 +1058,20 @@ export function Am5App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [tab, setTab] = useState<Tab>("today");
+  const [resultMeetingId, setResultMeetingId] = useState("");
   const [rankingScope, setRankingScope] = useState<RankingScope>("month");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
+  const [newMemberDraft, setNewMemberDraft] = useState({
+    kind: "member" as "member" | "guest",
+    displayName: "",
+    phone: "",
+    loginId: "",
+    gender: "male" as Gender,
+    seedWinRate: 50
+  });
 
   const today = todayKey();
   const todayMeeting = useMemo(() => meetings.find((meeting) => meeting.meeting_date === today) ?? null, [meetings, today]);
@@ -1071,6 +1081,24 @@ export function Am5App() {
     () => attendances.filter((attendance) => attendance.meeting_id === todayMeeting?.id),
     [attendances, todayMeeting?.id]
   );
+  const todayActiveAttendanceByMemberId = useMemo(
+    () => new Map(todayAttendances.filter((attendance) => !attendance.checked_out_at).map((attendance) => [attendance.member_id, attendance])),
+    [todayAttendances]
+  );
+  const todayLatestAttendanceByMemberId = useMemo(() => {
+    const latest = new Map<string, Attendance>();
+    const sorted = [...todayAttendances].sort(
+      (a, b) => new Date(b.checked_in_at).getTime() - new Date(a.checked_in_at).getTime()
+    );
+
+    sorted.forEach((attendance) => {
+      if (!latest.has(attendance.member_id)) {
+        latest.set(attendance.member_id, attendance);
+      }
+    });
+
+    return latest;
+  }, [todayAttendances]);
   const todayMatches = useMemo(
     () =>
       matches
@@ -1079,7 +1107,7 @@ export function Am5App() {
     [matches, todayMeeting?.id]
   );
   const myAttendance = useMemo(
-    () => todayAttendances.find((attendance) => attendance.member_id === profile?.id) ?? null,
+    () => todayAttendances.find((attendance) => attendance.member_id === profile?.id && !attendance.checked_out_at) ?? null,
     [profile?.id, todayAttendances]
   );
   const isPresent = Boolean(myAttendance && !myAttendance.checked_out_at);
@@ -1098,16 +1126,84 @@ export function Am5App() {
     () => getRankings(profiles, meetings, matches, matchPlayers, rankingScope),
     [profiles, meetings, matches, matchPlayers, rankingScope]
   );
+  const meetingDateById = useMemo(() => new Map(meetings.map((meeting) => [meeting.id, meeting.meeting_date])), [meetings]);
+  const selectedResultMeetingId = resultMeetingId || meetings[0]?.id || "";
+  const resultMatches = useMemo(
+    () =>
+      matches
+        .filter((match) => match.meeting_id === selectedResultMeetingId)
+        .filter((match) => match.status === "finished")
+        .filter((match) => match.team_a_score !== null && match.team_b_score !== null)
+        .sort((a, b) => a.round_number - b.round_number || a.court_number - b.court_number),
+    [matches, selectedResultMeetingId]
+  );
 
   const myMatchIds = useMemo(
     () => new Set(matchPlayers.filter((row) => row.member_id === profile?.id).map((row) => row.match_id)),
     [matchPlayers, profile?.id]
   );
-  const myNextMatch = useMemo(
-    () => todayMatches.find((match) => myMatchIds.has(match.id) && match.status !== "finished") ?? null,
+  const todayGameCountByMemberId = useMemo(() => {
+    const counts = new Map<string, number>();
+    const todayMatchIds = new Set(todayMatches.map((match) => match.id));
+
+    matchPlayers.forEach((player) => {
+      if (!todayMatchIds.has(player.match_id)) return;
+      counts.set(player.member_id, (counts.get(player.member_id) ?? 0) + 1);
+    });
+
+    return counts;
+  }, [todayMatches, matchPlayers]);
+  const myCurrentMatch = useMemo(
+    () => todayMatches.find((match) => myMatchIds.has(match.id) && match.status === "in_progress") ?? null,
     [todayMatches, myMatchIds]
   );
+  const myNextMatch = useMemo(
+    () => todayMatches.find((match) => myMatchIds.has(match.id) && match.status === "scheduled") ?? null,
+    [todayMatches, myMatchIds]
+  );
+  const activeTodayMatchIds = useMemo(
+    () => new Set(todayMatches.filter((match) => match.status === "scheduled" || match.status === "in_progress").map((match) => match.id)),
+    [todayMatches]
+  );
   const currentMatches = todayMatches.filter((match) => match.status === "in_progress");
+  const courtProgressRows = useMemo(
+    () =>
+      DEFAULT_COURTS.map((court) => {
+        const courtMatches = todayMatches.filter((match) => match.court_number === court.court_number);
+        const inProgressMatch = courtMatches.find((match) => match.status === "in_progress") ?? null;
+        const nextScheduledMatch = courtMatches.find((match) => match.status === "scheduled") ?? null;
+
+        return {
+          courtNumber: court.court_number,
+          inProgressMatch,
+          nextScheduledMatch,
+          inProgressCount: courtMatches.filter((match) => match.status === "in_progress").length,
+          scheduledCount: courtMatches.filter((match) => match.status === "scheduled").length,
+          finishedCount: courtMatches.filter((match) => match.status === "finished").length,
+          totalCount: courtMatches.length
+        };
+      }),
+    [todayMatches]
+  );
+  const todayFinishedMatches = useMemo(
+    () =>
+      todayMatches
+        .filter((match) => match.status === "finished")
+        .filter((match) => match.team_a_score !== null && match.team_b_score !== null)
+        .sort((a, b) => {
+          const left = new Date(b.ended_at ?? b.updated_at ?? b.created_at).getTime();
+          const right = new Date(a.ended_at ?? a.updated_at ?? a.created_at).getTime();
+          return left - right;
+        }),
+    [todayMatches]
+  );
+
+  useEffect(() => {
+    if (!meetings.length) return;
+    if (resultMeetingId) return;
+    setResultMeetingId(meetings[0].id);
+  }, [meetings, resultMeetingId]);
+
   const isAdmin = profile?.role === "admin";
   const availableCourtNumbers = useMemo(
     () => courts.filter((court) => court.is_available).map((court) => court.court_number),
@@ -1213,7 +1309,8 @@ export function Am5App() {
           display_name: row.display_name,
           phone: row.phone,
           gender: row.gender,
-          role: row.role
+          role: row.role,
+          seed_win_rate: row.seed_win_rate
         }
       ])
     );
@@ -1342,14 +1439,77 @@ export function Am5App() {
 
   async function checkOut(memberId = profile?.id) {
     if (!todayMeeting || !memberId) return;
+
+    const inActiveMatch = matchPlayers.some((player) => player.member_id === memberId && activeTodayMatchIds.has(player.match_id));
+
+    if (inActiveMatch) {
+      showToast("경기에 참여 중인 회원은 퇴장할 수 없습니다.");
+      return;
+    }
+
     await guarded(async () => {
       const { error } = await supabase
         .from("attendances")
         .update({ checked_out_at: new Date().toISOString() })
         .eq("meeting_id", todayMeeting.id)
-        .eq("member_id", memberId);
+        .eq("member_id", memberId)
+        .is("checked_out_at", null);
       if (error) throw error;
     }, "퇴장 처리했습니다.");
+  }
+
+  async function setMemberAttendance(member: Profile, action: "check-in" | "check-out") {
+    const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
+    const inActiveMatch = matchPlayers.some((player) => player.member_id === member.id && activeTodayMatchIds.has(player.match_id));
+
+    if (action === "check-in" && isCheckedIn) {
+      showToast(`${member.display_name}님은 이미 출석 중입니다.`);
+      return;
+    }
+
+    if (action === "check-out" && !isCheckedIn) {
+      showToast(`${member.display_name}님은 출석 중이 아닙니다.`);
+      return;
+    }
+
+    if (action === "check-out" && inActiveMatch) {
+      showToast(`${member.display_name}님은 경기 참여 중이라 퇴장할 수 없습니다.`);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const body = await adminFetch(`/api/admin/members/${member.id}/attendance`, {
+        method: "POST",
+        body: JSON.stringify({ action, meetingDate: today })
+      });
+      await loadData();
+
+      if (action === "check-out") {
+        showToast(`${member.display_name}님을 퇴장 처리했습니다.`);
+        return;
+      }
+
+      const assignedMatches = (body.assignedMatches ?? []) as Array<{
+        courtName: string;
+        includesCurrentUser: boolean;
+      }>;
+      const memberMatch = assignedMatches.find((match) => match.includesCurrentUser);
+
+      if (body.assignmentWarning) {
+        showToast(`${member.display_name}님을 출석 처리했습니다. 자동 대진 보류: ${body.assignmentWarning}`);
+      } else if (memberMatch) {
+        showToast(`${member.display_name}님을 출석 처리했습니다. 코트 ${memberMatch.courtName}에 배정됐습니다.`);
+      } else if (assignedMatches.length > 0) {
+        showToast(`${member.display_name}님을 출석 처리했습니다. 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
+      } else {
+        showToast(`${member.display_name}님을 출석 처리했습니다.`);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "회원 출석 처리에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function createDraw() {
@@ -1399,11 +1559,10 @@ export function Am5App() {
 
   async function startMatch(match: Match) {
     await guarded(async () => {
-      const { error } = await supabase
-        .from("matches")
-        .update({ status: "in_progress", started_at: match.started_at ?? new Date().toISOString() })
-        .eq("id", match.id);
-      if (error) throw error;
+      await memberFetch("/api/member/matches/start", {
+        method: "POST",
+        body: JSON.stringify({ matchId: match.id })
+      });
     }, "경기를 시작했습니다.");
   }
 
@@ -1453,10 +1612,83 @@ export function Am5App() {
   async function updateMember(memberId: string) {
     const draft = memberDrafts[memberId];
     if (!draft) return;
+
+    if (!Number.isFinite(draft.seed_win_rate) || draft.seed_win_rate < 0 || draft.seed_win_rate > 100) {
+      showToast("기준 승률은 0~100 사이 값으로 입력해주세요.");
+      return;
+    }
+
     await guarded(async () => {
-      const { error } = await supabase.from("profiles").update(draft).eq("id", memberId);
-      if (error) throw error;
+      const body = await adminFetch(`/api/admin/members/${memberId}`, {
+        method: "PATCH",
+        body: JSON.stringify(draft)
+      });
+      if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
     }, "회원 정보를 저장했습니다.");
+  }
+
+  async function createMember() {
+    const isGuest = newMemberDraft.kind === "guest";
+    const displayName = newMemberDraft.displayName.trim();
+    const phone = newMemberDraft.phone.trim() || (isGuest ? "게스트" : "");
+    const loginId = normalizeLoginId(newMemberDraft.loginId || displayName);
+    const seedWinRate = Number(newMemberDraft.seedWinRate);
+
+    if (!displayName || !phone || (!isGuest && !loginId)) {
+      showToast("이름, 전화번호, 로그인 아이디를 확인해주세요.");
+      return;
+    }
+
+    if (!Number.isFinite(seedWinRate) || seedWinRate < 0 || seedWinRate > 100) {
+      showToast("기준 승률은 0~100 사이 값으로 입력해주세요.");
+      return;
+    }
+
+    if (isGuest && !todayMeeting) {
+      showToast("당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.");
+      return;
+    }
+
+    await guarded(async () => {
+      await adminFetch("/api/admin/members", {
+        method: "POST",
+        body: JSON.stringify({
+          displayName,
+          phone,
+          gender: newMemberDraft.gender,
+          loginId,
+          isGuest,
+          seedWinRate,
+          todayMeetingId: todayMeeting?.id ?? null
+        })
+      });
+
+      setNewMemberDraft({
+        kind: "member",
+        displayName: "",
+        phone: "",
+        loginId: "",
+        gender: "male",
+        seedWinRate: 50
+      });
+    }, isGuest ? `게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.` : `회원을 추가했습니다. 초기 비밀번호는 ${DEFAULT_PASSWORD} 입니다.`);
+  }
+
+  async function setMemberRole(member: Profile, role: Role) {
+    if (member.role === role) return;
+
+    if (member.id === profile?.id && role !== "admin") {
+      showToast("본인의 관리자 권한은 삭제할 수 없습니다.");
+      return;
+    }
+
+    await guarded(async () => {
+      const body = await adminFetch(`/api/admin/members/${member.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role })
+      });
+      if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
+    }, role === "admin" ? `${member.display_name}님에게 관리자 권한을 부여했습니다.` : `${member.display_name}님의 관리자 권한을 삭제했습니다.`);
   }
 
   async function resetPassword(memberId: string) {
@@ -1492,16 +1724,52 @@ export function Am5App() {
     return matchPlayers.filter((row) => row.match_id === matchId && row.team === team).map((row) => row.member_id);
   }
 
-  function names(ids: string[]) {
-    return ids.map((id) => profileById.get(id)?.display_name ?? "알 수 없음").join(" · ");
+  function names(ids: string[], includeTodayStats = false) {
+    return ids
+      .map((id) => {
+        const name = profileById.get(id)?.display_name ?? "알 수 없음";
+        if (!includeTodayStats) return name;
+
+        const todayGames = todayGameCountByMemberId.get(id) ?? 0;
+        const winRate = statsAll.get(id)?.winRate ?? 0;
+        return `${name} (${todayGames}경기 · ${formatRate(winRate)})`;
+      })
+      .join(" · ");
   }
 
-  function renderMatchCard(match: Match) {
+  function teamAverageWinRate(ids: string[]) {
+    if (!ids.length) return 0;
+    const total = ids.reduce((sum, id) => sum + (statsAll.get(id)?.winRate ?? 0), 0);
+    return total / ids.length;
+  }
+
+  function renderNamesWithStats(ids: string[]) {
+    return ids.map((id, index) => {
+      const name = profileById.get(id)?.display_name ?? "알 수 없음";
+      const todayGames = todayGameCountByMemberId.get(id) ?? 0;
+      const winRate = statsAll.get(id)?.winRate ?? 0;
+
+      return (
+        <span className="member-inline" key={id}>
+          <span className="member-name">{name}</span>
+          <small className="member-meta">
+            {todayGames}경기 · {formatRate(winRate)}
+          </small>
+          {index < ids.length - 1 && <span className="member-sep"> · </span>}
+        </span>
+      );
+    });
+  }
+
+  function renderMatchCard(match: Match, includeTodayStats = false) {
     const teamA = matchTeam(match.id, "A");
     const teamB = matchTeam(match.id, "B");
+    const teamAAvg = teamAverageWinRate(teamA);
+    const teamBAvg = teamAverageWinRate(teamB);
     const minutes = elapsedMinutes(match.started_at, match.ended_at);
     const mine = profile ? [...teamA, ...teamB].includes(profile.id) : false;
     const canManageMatch = isAdmin || mine;
+    const canStartMatch = canManageMatch && match.status === "scheduled" && availableCourtNumbers.includes(match.court_number);
     const canFinishMatch = canManageMatch && !match.ended_at && match.status !== "finished";
     const canRecordResult =
       canManageMatch &&
@@ -1519,13 +1787,15 @@ export function Am5App() {
         </div>
 
         <div className="teams">
-          <div className="team-row">
+          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
             <span>A</span>
-            <strong>{names(teamA)}</strong>
+            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamAAvg)}</small>}
+            <strong>{includeTodayStats ? renderNamesWithStats(teamA) : names(teamA)}</strong>
           </div>
-          <div className="team-row">
+          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
             <span>B</span>
-            <strong>{names(teamB)}</strong>
+            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamBAvg)}</small>}
+            <strong>{includeTodayStats ? renderNamesWithStats(teamB) : names(teamB)}</strong>
           </div>
         </div>
 
@@ -1547,7 +1817,7 @@ export function Am5App() {
         {canManageMatch && (
           <>
             <div className="match-actions">
-              <button className="small-button" disabled={busy || !isAdmin || match.status !== "scheduled"} type="button" onClick={() => startMatch(match)}>
+              <button className="small-button" disabled={busy || !canStartMatch} type="button" onClick={() => startMatch(match)}>
                 <Play size={16} />
                 시작
               </button>
@@ -1589,6 +1859,12 @@ export function Am5App() {
         <div className="top-actions">
           {isAdmin && (
             <>
+              <button className={classNames("icon-button", tab === "members" && "active")} title="회원" type="button" onClick={() => setTab("members")}>
+                <Users size={19} />
+              </button>
+              <button className={classNames("icon-button", tab === "monitor" && "active")} title="현황" type="button" onClick={() => setTab("monitor")}>
+                <Activity size={19} />
+              </button>
               <button className={classNames("icon-button", tab === "test" && "active")} title="테스트" type="button" onClick={() => setTab("test")}>
                 <SquarePen size={19} />
               </button>
@@ -1648,16 +1924,17 @@ export function Am5App() {
 
             <section className="panel">
               <div className="section-head">
-                <h2>내 다음 경기</h2>
+                <h2>내 경기</h2>
               </div>
-              {myNextMatch ? renderMatchCard(myNextMatch) : <p className="empty">배정된 경기가 없습니다.</p>}
+              {myCurrentMatch ? renderMatchCard(myCurrentMatch) : <p className="empty">진행 중인 내 경기가 없습니다.</p>}
+              {myNextMatch ? renderMatchCard(myNextMatch) : <p className="empty">예정된 내 경기가 없습니다.</p>}
             </section>
 
             <section className="panel">
               <div className="section-head">
                 <h2>진행 중</h2>
               </div>
-              {currentMatches.length ? currentMatches.map(renderMatchCard) : <p className="empty">진행 중인 경기가 없습니다.</p>}
+              {currentMatches.length ? currentMatches.map((match) => renderMatchCard(match, false)) : <p className="empty">진행 중인 경기가 없습니다.</p>}
             </section>
           </div>
         )}
@@ -1676,7 +1953,89 @@ export function Am5App() {
                 </button>
               )}
             </div>
-            {todayMatches.length ? todayMatches.map(renderMatchCard) : <p className="empty large">오늘 생성된 대진이 없습니다.</p>}
+            {todayMatches.length ? todayMatches.map((match) => renderMatchCard(match, true)) : <p className="empty large">오늘 생성된 대진이 없습니다.</p>}
+          </div>
+        )}
+
+        {tab === "results" && (
+          <div className="screen">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">공용 조회</p>
+                <h1>모임 결과</h1>
+              </div>
+            </div>
+
+            <section className="panel">
+              <label>
+                모임 날짜 선택
+                <select value={selectedResultMeetingId} onChange={(event) => setResultMeetingId(event.target.value)}>
+                  {meetings.length ? (
+                    meetings.map((meeting) => (
+                      <option key={meeting.id} value={meeting.id}>
+                        {formatDate(meeting.meeting_date)}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">모임 기록 없음</option>
+                  )}
+                </select>
+              </label>
+            </section>
+
+            <section className="panel">
+              <div className="section-head">
+                <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
+                <span className="count-chip">{resultMatches.length}</span>
+              </div>
+              {resultMatches.length ? (
+                <div className="ranking-list">
+                  {resultMatches.map((match) => {
+                    const teamA = matchTeam(match.id, "A");
+                    const teamB = matchTeam(match.id, "B");
+                    const minutes = elapsedMinutes(match.started_at, match.ended_at);
+
+                    return (
+                      <article className="match-card" key={match.id}>
+                        <div className="match-head">
+                          <div>
+                            <span className="eyebrow">코트 {courtName(match.court_number)}</span>
+                            <h3>라운드 {match.round_number}</h3>
+                          </div>
+                          <span className={classNames("status-pill", "finished")}>종료</span>
+                        </div>
+
+                        <div className="teams">
+                          <div className="team-row">
+                            <span>A</span>
+                            <strong>{names(teamA)}</strong>
+                          </div>
+                          <div className="team-row">
+                            <span>B</span>
+                            <strong>{names(teamB)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="score-line">
+                          <strong>
+                            {match.team_a_score} : {match.team_b_score}
+                          </strong>
+                          <span>{winnerLabel(match.winner_team)} 승</span>
+                        </div>
+
+                        <div className="match-meta">
+                          <span>시작 {formatTime(match.started_at)}</span>
+                          <span>종료 {formatTime(match.ended_at)}</span>
+                          <span>{minutes === null ? "소요 -" : `${minutes}분`}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="empty">선택한 날짜에 기록된 경기 결과가 없습니다.</p>
+              )}
+            </section>
           </div>
         )}
 
@@ -1793,55 +2152,183 @@ export function Am5App() {
                 <ClipboardList size={18} />
                 대진 생성
               </button>
-              <button className="full-button" type="button" onClick={() => setTab("test")}>
-                <SquarePen size={18} />
-                테스트 콘솔
-              </button>
-              <button className="full-button" type="button" onClick={() => setTab("courts")}>
-                <Medal size={18} />
-                코트 관리
-              </button>
             </div>
 
             <section className="panel">
               <div className="section-head">
-                <h2>출석자</h2>
+                <h2>회원 출석/퇴장</h2>
                 <span className="count-chip">{todayAttendances.filter((row) => !row.checked_out_at).length}</span>
               </div>
-              <div className="attendance-list">
-                {todayAttendances.length ? (
-                  todayAttendances.map((attendance) => {
-                    const member = profileById.get(attendance.member_id);
-                    return (
-                      <article className="attendance-row" key={attendance.id}>
+              <div className="member-list">
+                {profiles.map((member) => {
+                  const latestAttendance = todayLatestAttendanceByMemberId.get(member.id);
+                  const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
+
+                  return (
+                    <article className="member-card" key={member.id}>
+                      <div className="member-status-row">
                         <div>
-                          <strong>{member?.display_name ?? "알 수 없음"}</strong>
+                          <strong>{member.display_name}</strong>
                           <small>
-                            출석 {formatTime(attendance.checked_in_at)}
-                            {attendance.checked_out_at ? ` · 퇴장 ${formatTime(attendance.checked_out_at)}` : ""}
+                            {isCheckedIn
+                              ? `출석 ${formatTime(latestAttendance?.checked_in_at)}`
+                              : latestAttendance?.checked_out_at
+                                ? `최근 퇴장 ${formatTime(latestAttendance.checked_out_at)}`
+                                : "오늘 출석 기록 없음"}
                           </small>
                         </div>
+                        <span className={classNames("status-pill", isCheckedIn && "in_progress")}>
+                          {isCheckedIn ? "출석 중" : latestAttendance?.checked_out_at ? "퇴장 완료" : "미출석"}
+                        </span>
+                      </div>
+                      <div className="member-attendance-actions">
                         <button
-                          className="icon-button"
-                          disabled={Boolean(attendance.checked_out_at) || busy}
-                          title="퇴장 처리"
+                          className="small-button primary"
+                          disabled={busy || isCheckedIn}
                           type="button"
-                          onClick={() => checkOut(attendance.member_id)}
+                          onClick={() => setMemberAttendance(member, "check-in")}
                         >
-                          <DoorOpen size={18} />
+                          <CheckCircle2 size={16} />
+                          출석
                         </button>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="empty">출석자가 없습니다.</p>
-                )}
+                        <button
+                          className="small-button danger"
+                          disabled={busy || !isCheckedIn}
+                          type="button"
+                          onClick={() => setMemberAttendance(member, "check-out")}
+                        >
+                          <DoorOpen size={16} />
+                          퇴장
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
+            </section>
+          </div>
+        )}
+
+        {tab === "members" && isAdmin && (
+          <div className="screen">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">관리자</p>
+                <h1>회원 관리</h1>
+              </div>
+            </div>
+
+            <section className="panel">
+              <div className="section-head">
+                <h2>회원 추가</h2>
+              </div>
+              <div className="segmented compact">
+                <button
+                  className={newMemberDraft.kind === "member" ? "active" : ""}
+                  type="button"
+                  onClick={() => setNewMemberDraft((draft) => ({ ...draft, kind: "member", seedWinRate: 50 }))}
+                >
+                  정회원
+                </button>
+                <button
+                  className={newMemberDraft.kind === "guest" ? "active" : ""}
+                  type="button"
+                  onClick={() => setNewMemberDraft((draft) => ({ ...draft, kind: "guest" }))}
+                >
+                  게스트
+                </button>
+                <button className="active" disabled type="button">
+                  {newMemberDraft.kind === "guest" ? (todayMeeting ? "당일 모임 확인됨" : "당일 모임 필요") : "일반 등록"}
+                </button>
+              </div>
+              <div className="member-form">
+                <label>
+                  이름
+                  <input
+                    value={newMemberDraft.displayName}
+                    onChange={(event) =>
+                      setNewMemberDraft((draft) => ({
+                        ...draft,
+                        displayName: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  전화번호
+                  <input
+                    inputMode="tel"
+                    value={newMemberDraft.phone}
+                    onChange={(event) =>
+                      setNewMemberDraft((draft) => ({
+                        ...draft,
+                        phone: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                {newMemberDraft.kind === "member" ? (
+                  <label>
+                    로그인 아이디
+                    <input
+                      placeholder={newMemberDraft.displayName || "이름"}
+                      value={newMemberDraft.loginId}
+                      onChange={(event) =>
+                        setNewMemberDraft((draft) => ({
+                          ...draft,
+                          loginId: event.target.value
+                        }))
+                      }
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    게스트 기준 승률 (%)
+                    <input
+                      inputMode="decimal"
+                      max={100}
+                      min={0}
+                      step={0.1}
+                      type="number"
+                      value={newMemberDraft.seedWinRate}
+                      onChange={(event) =>
+                        setNewMemberDraft((draft) => ({
+                          ...draft,
+                          seedWinRate: Number(event.target.value)
+                        }))
+                      }
+                    />
+                  </label>
+                )}
+                <label>
+                  성별
+                  <select
+                    value={newMemberDraft.gender}
+                    onChange={(event) =>
+                      setNewMemberDraft((draft) => ({
+                        ...draft,
+                        gender: event.target.value as Gender
+                      }))
+                    }
+                  >
+                    <option value="male">남성</option>
+                    <option value="female">여성</option>
+                    <option value="other">기타</option>
+                  </select>
+                </label>
+              </div>
+              <button className="full-button primary" disabled={busy || (newMemberDraft.kind === "guest" && !todayMeeting)} type="button" onClick={createMember}>
+                <UserPlus size={18} />
+                {newMemberDraft.kind === "guest" ? "게스트 추가" : "회원 추가"}
+              </button>
+              {newMemberDraft.kind === "guest" && !todayMeeting && (
+                <p className="helper-text">당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.</p>
+              )}
             </section>
 
             <section className="panel">
               <div className="section-head">
-                <h2>회원 관리</h2>
+                <h2>회원 목록</h2>
                 <span className="count-chip">{profiles.length}</span>
               </div>
               <div className="member-list">
@@ -1850,10 +2337,17 @@ export function Am5App() {
                     display_name: member.display_name,
                     phone: member.phone,
                     gender: member.gender,
-                    role: member.role
+                    role: member.role,
+                    seed_win_rate: member.seed_win_rate
                   };
+                  const nextRole = member.role === "admin" ? "member" : "admin";
+
                   return (
                     <article className="member-card" key={member.id}>
+                      <div className="section-head">
+                        <h3>{member.is_guest ? "게스트" : "회원"}</h3>
+                        {member.is_guest && <span className="status-pill in_progress">임시</span>}
+                      </div>
                       <div className="member-form">
                         <label>
                           이름
@@ -1911,13 +2405,40 @@ export function Am5App() {
                             <option value="admin">관리자</option>
                           </select>
                         </label>
+                        <label>
+                          기준 승률 (%)
+                          <input
+                            inputMode="decimal"
+                            max={100}
+                            min={0}
+                            step={0.1}
+                            type="number"
+                            value={draft.seed_win_rate}
+                            onChange={(event) =>
+                              setMemberDrafts((rows) => ({
+                                ...rows,
+                                [member.id]: { ...draft, seed_win_rate: Number(event.target.value) }
+                              }))
+                            }
+                          />
+                        </label>
                       </div>
+
                       <div className="member-actions">
                         <button className="icon-button primary" disabled={busy} title="저장" type="button" onClick={() => updateMember(member.id)}>
                           <Save size={17} />
                         </button>
                         <button className="icon-button" disabled={busy} title="비밀번호 초기화" type="button" onClick={() => resetPassword(member.id)}>
                           <RotateCcw size={17} />
+                        </button>
+                        <button
+                          className={classNames("icon-button", member.role === "admin" ? "danger" : "primary")}
+                          disabled={busy || (member.id === profile?.id && member.role === "admin")}
+                          title={member.role === "admin" ? "관리자 권한 삭제" : "관리자 권한 부여"}
+                          type="button"
+                          onClick={() => setMemberRole(member, nextRole)}
+                        >
+                          {member.role === "admin" ? <User size={17} /> : <Shield size={17} />}
                         </button>
                         <button className="icon-button danger" disabled={busy} title="삭제" type="button" onClick={() => deleteMember(member.id)}>
                           <Trash2 size={17} />
@@ -1927,6 +2448,143 @@ export function Am5App() {
                   );
                 })}
               </div>
+            </section>
+          </div>
+        )}
+
+        {tab === "monitor" && isAdmin && (
+          <div className="screen">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">관리자</p>
+                <h1>코트 진행 · 전체 결과</h1>
+              </div>
+            </div>
+
+            <section className="panel">
+              <div className="section-head">
+                <h2>코트별 진행 상황</h2>
+              </div>
+
+              <div className="test-court-grid">
+                {courtProgressRows.map((row) => {
+                  const match = row.inProgressMatch ?? row.nextScheduledMatch;
+                  const teamA = match ? matchTeam(match.id, "A") : [];
+                  const teamB = match ? matchTeam(match.id, "B") : [];
+                  const canStart = Boolean(match && match.status === "scheduled" && availableCourtNumbers.includes(match.court_number));
+                  const canFinish = Boolean(match && match.status === "in_progress" && !match.ended_at);
+                  const canRecordResult = Boolean(match && match.ended_at && match.team_a_score === null && match.team_b_score === null);
+
+                  return (
+                    <article className="test-court-card" key={row.courtNumber}>
+                      <div className="match-head">
+                        <div>
+                          <p className="eyebrow">코트 {courtName(row.courtNumber)}</p>
+                          <h3>{row.inProgressMatch ? "진행 중" : row.nextScheduledMatch ? "대기 경기" : "배정 없음"}</h3>
+                        </div>
+                        <span className={classNames("status-pill", match?.status)}>{match ? matchDisplayStatus(match) : "비어 있음"}</span>
+                      </div>
+
+                      <div className="match-meta">
+                        <span>총 {row.totalCount}경기</span>
+                        <span>진행 {row.inProgressCount}</span>
+                        <span>대기 {row.scheduledCount}</span>
+                        <span>종료 {row.finishedCount}</span>
+                      </div>
+
+                      {match ? (
+                        <>
+                          <div className="teams">
+                            <div className="team-row">
+                              <span>A</span>
+                              <strong>{names(teamA)}</strong>
+                            </div>
+                            <div className="team-row">
+                              <span>B</span>
+                              <strong>{names(teamB)}</strong>
+                            </div>
+                          </div>
+                          <div className="match-meta">
+                            <span>라운드 {match.round_number}</span>
+                            <span>시작 {formatTime(match.started_at)}</span>
+                            <span>종료 {formatTime(match.ended_at)}</span>
+                          </div>
+                          <div className="match-actions">
+                            <button className="small-button" disabled={busy || !canStart} type="button" onClick={() => startMatch(match)}>
+                              <Play size={16} />
+                              시작
+                            </button>
+                            <button className="small-button" disabled={busy || !canFinish} type="button" onClick={() => finishMatch(match)}>
+                              <StopCircle size={16} />
+                              종료
+                            </button>
+                          </div>
+                          {canRecordResult && <ResultForm disabled={busy} match={match} onSave={saveResult} />}
+                        </>
+                      ) : (
+                        <p className="empty">현재 배정된 경기가 없습니다.</p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="section-head">
+                <h2>모든 경기 결과</h2>
+                <span className="count-chip">{todayFinishedMatches.length}</span>
+              </div>
+
+              {todayFinishedMatches.length ? (
+                <div className="ranking-list">
+                  {todayFinishedMatches.map((match) => {
+                    const teamA = matchTeam(match.id, "A");
+                    const teamB = matchTeam(match.id, "B");
+                    const minutes = elapsedMinutes(match.started_at, match.ended_at);
+
+                    return (
+                      <article className="match-card" key={match.id}>
+                        <div className="match-head">
+                          <div>
+                            <span className="eyebrow">{formatDate(meetingDateById.get(match.meeting_id) ?? "")}</span>
+                            <h3>
+                              코트 {courtName(match.court_number)} · 라운드 {match.round_number}
+                            </h3>
+                          </div>
+                          <span className={classNames("status-pill", "finished")}>종료</span>
+                        </div>
+
+                        <div className="teams">
+                          <div className="team-row">
+                            <span>A</span>
+                            <strong>{names(teamA)}</strong>
+                          </div>
+                          <div className="team-row">
+                            <span>B</span>
+                            <strong>{names(teamB)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="score-line">
+                          <strong>
+                            {match.team_a_score} : {match.team_b_score}
+                          </strong>
+                          <span>{winnerLabel(match.winner_team)} 승</span>
+                        </div>
+
+                        <div className="match-meta">
+                          <span>시작 {formatTime(match.started_at)}</span>
+                          <span>종료 {formatTime(match.ended_at)}</span>
+                          <span>{minutes === null ? "소요 -" : `${minutes}분`}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="empty">기록된 경기 결과가 없습니다.</p>
+              )}
             </section>
           </div>
         )}
@@ -1948,6 +2606,7 @@ export function Am5App() {
         {[
           ["today", "오늘", Home],
           ["draw", "대진표", ListChecks],
+          ["results", "결과", ClipboardList],
           ["ranking", "랭킹", Trophy],
           ["me", "내 정보", User]
         ].map(([key, label, Icon]) => {

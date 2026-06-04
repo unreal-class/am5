@@ -7,10 +7,17 @@ create table if not exists public.profiles (
   phone text not null,
   gender text not null default 'other' check (gender in ('male', 'female', 'other')),
   role text not null default 'member' check (role in ('member', 'admin')),
+  is_guest boolean not null default false,
+  seed_win_rate numeric(5,2) not null default 50 check (seed_win_rate >= 0 and seed_win_rate <= 100),
   must_change_password boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles add column if not exists is_guest boolean not null default false;
+alter table public.profiles add column if not exists seed_win_rate numeric(5,2) not null default 50;
+alter table public.profiles drop constraint if exists profiles_seed_win_rate_check;
+alter table public.profiles add constraint profiles_seed_win_rate_check check (seed_win_rate >= 0 and seed_win_rate <= 100);
 
 create table if not exists public.meetings (
   id uuid primary key default gen_random_uuid(),
@@ -27,9 +34,10 @@ create table if not exists public.attendances (
   checked_in_at timestamptz not null default now(),
   checked_out_at timestamptz,
   created_at timestamptz not null default now(),
-  unique (meeting_id, member_id),
   check (checked_out_at is null or checked_out_at >= checked_in_at)
 );
+
+alter table public.attendances drop constraint if exists attendances_meeting_id_member_id_key;
 
 create table if not exists public.courts (
   court_number integer primary key check (court_number between 1 and 3),

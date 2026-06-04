@@ -26,6 +26,8 @@ export type Profile = {
   phone: string;
   gender: Gender;
   role: Role;
+  is_guest: boolean;
+  seed_win_rate: number;
   must_change_password: boolean;
   created_at: string;
   updated_at: string;

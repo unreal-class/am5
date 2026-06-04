@@ -17,6 +17,7 @@ export function currentYearKey() {
 export function formatDate(date: string | null | undefined) {
   if (!date) return "-";
   return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "short"

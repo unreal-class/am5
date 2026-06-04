@@ -184,11 +184,16 @@ export function generateMatches({
   let candidates = eligibleMemberIds
     .map((memberId) => profileById.get(memberId))
     .filter((profile): profile is Profile => Boolean(profile))
-    .map((profile) => ({
-      profile,
-      todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
-      winRate: stats.get(profile.id)?.winRate ?? 0
-    }))
+    .map((profile) => {
+      const stat = stats.get(profile.id);
+      const winRate = stat && stat.games > 0 ? stat.winRate : profile.is_guest ? profile.seed_win_rate : 0;
+
+      return {
+        profile,
+        todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
+        winRate
+      };
+    })
     .sort((a, b) => {
       if (a.todayGames !== b.todayGames) return a.todayGames - b.todayGames;
       if (a.winRate !== b.winRate) return a.winRate - b.winRate;

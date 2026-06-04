@@ -449,7 +449,11 @@ code {
   gap: 10px;
 }
 
-.team-row span {
+.team-row.with-stats {
+  grid-template-columns: 32px auto 1fr;
+}
+
+.team-row > span {
   width: 32px;
   height: 32px;
   display: grid;
@@ -464,6 +468,31 @@ code {
   min-width: 0;
   overflow-wrap: anywhere;
   line-height: 1.35;
+}
+
+.team-avg {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.member-inline {
+  display: inline;
+}
+
+.member-name {
+  font-weight: 800;
+}
+
+.member-meta {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.member-sep {
+  color: var(--muted);
 }
 
 .match-meta,
@@ -590,6 +619,29 @@ code {
   gap: 8px;
 }
 
+.member-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.member-status-row small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.member-attendance-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .test-user-grid,
 .test-court-grid,
 .court-grid {
@@ -670,7 +722,7 @@ code {
   z-index: 20;
   height: calc(var(--tab-height) + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.96);
   padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
@@ -747,5 +799,10 @@ code {
   .score-form button {
     grid-column: span 2;
     width: 100%;
+  }
+
+  .member-status-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
