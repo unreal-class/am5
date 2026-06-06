@@ -5,6 +5,27 @@ import { requireAdmin } from "@/lib/server-supabase";
 
 const genders = new Set(["male", "female", "other"]);
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function nextGuestDisplayName(baseName: string, existingNames: string[]) {
+  const exactPattern = new RegExp(`^${escapeRegExp(baseName)}(\\d*)$`);
+  const usedNumbers = new Set<number>();
+
+  existingNames.forEach((name) => {
+    const match = name.match(exactPattern);
+    if (!match) return;
+    usedNumbers.add(match[1] ? Number(match[1]) : 0);
+  });
+
+  if (!usedNumbers.has(0)) return baseName;
+
+  let suffix = 1;
+  while (usedNumbers.has(suffix)) suffix += 1;
+  return `${baseName}${suffix}`;
+}
+
 export async function POST(request: Request) {
   const gate = await requireAdmin(request);
 
@@ -13,7 +34,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const displayName = String(body.displayName ?? "").trim();
+  const requestedDisplayName = String(body.displayName ?? "").trim();
   const isGuest = Boolean(body.isGuest);
   const phone = String(body.phone ?? "").trim() || (isGuest ? "게스트" : "");
   const gender = String(body.gender ?? "other") as Gender;
@@ -22,14 +43,16 @@ export async function POST(request: Request) {
   const todayMeetingId = String(body.todayMeetingId ?? "");
   const baseLoginId = isGuest
     ? normalizeLoginId(`guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
-    : normalizeLoginId(String(body.loginId ?? displayName));
+    : normalizeLoginId(String(body.loginId ?? requestedDisplayName));
   let loginId = baseLoginId;
 
-  if (!displayName || !phone || !loginId || !genders.has(gender) || !Number.isFinite(seedWinRate)) {
+  if (!requestedDisplayName || !phone || !loginId || !genders.has(gender) || !Number.isFinite(seedWinRate)) {
     return NextResponse.json({ message: "이름, 전화번호, 성별을 확인해주세요." }, { status: 400 });
   }
 
   const admin = gate.admin;
+  let displayName = requestedDisplayName;
+
   if (isGuest) {
     if (!todayMeetingId) {
       return NextResponse.json({ message: "당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다." }, { status: 400 });
@@ -47,6 +70,19 @@ export async function POST(request: Request) {
     if (meetingError || !meeting) {
       return NextResponse.json({ message: "당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다." }, { status: 400 });
     }
+
+    const { data: existingNameProfiles, error: existingNameProfilesError } = await admin
+      .from("profiles")
+      .select("display_name");
+
+    if (existingNameProfilesError) {
+      return NextResponse.json({ message: existingNameProfilesError.message }, { status: 400 });
+    }
+
+    displayName = nextGuestDisplayName(
+      requestedDisplayName,
+      (existingNameProfiles ?? []).map((row) => row.display_name)
+    );
   }
 
   const { data: existing, error: existingError } = await admin.from("profiles").select("id").eq("login_id", loginId).maybeSingle();
@@ -110,5 +146,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, memberId: data.user.id });
+  return NextResponse.json({ ok: true, memberId: data.user.id, displayName });
 }

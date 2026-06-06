@@ -1076,6 +1076,7 @@ export function Am5App() {
   const today = todayKey();
   const todayMeeting = useMemo(() => meetings.find((meeting) => meeting.meeting_date === today) ?? null, [meetings, today]);
   const profileById = useMemo(() => new Map(profiles.map((row) => [row.id, row])), [profiles]);
+  const regularProfiles = useMemo(() => profiles.filter((row) => !row.is_guest), [profiles]);
 
   const todayAttendances = useMemo(
     () => attendances.filter((attendance) => attendance.meeting_id === todayMeeting?.id),
@@ -1161,11 +1162,11 @@ export function Am5App() {
     () => todayMatches.find((match) => myMatchIds.has(match.id) && match.status === "scheduled") ?? null,
     [todayMatches, myMatchIds]
   );
-  const activeTodayMatchIds = useMemo(
-    () => new Set(todayMatches.filter((match) => match.status === "scheduled" || match.status === "in_progress").map((match) => match.id)),
-    [todayMatches]
-  );
   const currentMatches = todayMatches.filter((match) => match.status === "in_progress");
+  const otherCurrentMatches = useMemo(
+    () => currentMatches.filter((match) => !myMatchIds.has(match.id)),
+    [currentMatches, myMatchIds]
+  );
   const courtProgressRows = useMemo(
     () =>
       DEFAULT_COURTS.map((court) => {
@@ -1437,30 +1438,63 @@ export function Am5App() {
     }
   }
 
+  function checkoutToastMessage(
+    baseMessage: string,
+    body: {
+      canceledMatchCount?: number;
+      assignedMatches?: Array<{ courtName: string; includesCurrentUser: boolean }>;
+      assignmentWarning?: string | null;
+    }
+  ) {
+    const canceledMatchCount = Number(body.canceledMatchCount ?? 0);
+    const assignedMatches = body.assignedMatches ?? [];
+    const details: string[] = [];
+
+    if (canceledMatchCount > 0) {
+      details.push(`배정 경기 ${canceledMatchCount}건을 취소했습니다.`);
+    }
+
+    if (assignedMatches.length > 0) {
+      details.push(`다른 멤버 대진 ${assignedMatches.length}건을 새로 생성했습니다.`);
+    }
+
+    if (body.assignmentWarning) {
+      details.push(`자동 대진 보류: ${body.assignmentWarning}`);
+    }
+
+    return [baseMessage, ...details].join(" ");
+  }
+
   async function checkOut(memberId = profile?.id) {
     if (!todayMeeting || !memberId) return;
 
-    const inActiveMatch = matchPlayers.some((player) => player.member_id === memberId && activeTodayMatchIds.has(player.match_id));
+    const memberMatchIds = new Set(matchPlayers.filter((player) => player.member_id === memberId).map((player) => player.match_id));
+    const inProgressMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && match.status === "in_progress");
 
-    if (inActiveMatch) {
-      showToast("경기에 참여 중인 회원은 퇴장할 수 없습니다.");
+    if (inProgressMatch) {
+      showToast("현재 진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료한 뒤 퇴장해주세요.");
       return;
     }
 
-    await guarded(async () => {
-      const { error } = await supabase
-        .from("attendances")
-        .update({ checked_out_at: new Date().toISOString() })
-        .eq("meeting_id", todayMeeting.id)
-        .eq("member_id", memberId)
-        .is("checked_out_at", null);
-      if (error) throw error;
-    }, "퇴장 처리했습니다.");
+    setBusy(true);
+    try {
+      const body = await memberFetch("/api/member/check-out", {
+        method: "POST",
+        body: JSON.stringify({ meetingDate: today })
+      });
+      await loadData();
+      showToast(checkoutToastMessage("퇴장 처리했습니다.", body));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "퇴장 처리에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function setMemberAttendance(member: Profile, action: "check-in" | "check-out") {
     const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
-    const inActiveMatch = matchPlayers.some((player) => player.member_id === member.id && activeTodayMatchIds.has(player.match_id));
+    const memberMatchIds = new Set(matchPlayers.filter((player) => player.member_id === member.id).map((player) => player.match_id));
+    const inProgressMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && match.status === "in_progress");
 
     if (action === "check-in" && isCheckedIn) {
       showToast(`${member.display_name}님은 이미 출석 중입니다.`);
@@ -1472,8 +1506,8 @@ export function Am5App() {
       return;
     }
 
-    if (action === "check-out" && inActiveMatch) {
-      showToast(`${member.display_name}님은 경기 참여 중이라 퇴장할 수 없습니다.`);
+    if (action === "check-out" && inProgressMatch) {
+      showToast(`${member.display_name}님은 진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료해주세요.`);
       return;
     }
 
@@ -1486,7 +1520,7 @@ export function Am5App() {
       await loadData();
 
       if (action === "check-out") {
-        showToast(`${member.display_name}님을 퇴장 처리했습니다.`);
+        showToast(checkoutToastMessage(`${member.display_name}님을 퇴장 처리했습니다.`, body));
         return;
       }
 
@@ -1558,12 +1592,20 @@ export function Am5App() {
   }
 
   async function startMatch(match: Match) {
-    await guarded(async () => {
+    setBusy(true);
+    try {
       await memberFetch("/api/member/matches/start", {
         method: "POST",
         body: JSON.stringify({ matchId: match.id })
       });
-    }, "경기를 시작했습니다.");
+      await loadData();
+      showToast("경기를 시작했습니다.");
+    } catch (error) {
+      await loadData();
+      showToast(error instanceof Error ? error.message : "경기 시작에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function finishMatch(match: Match) {
@@ -1575,7 +1617,7 @@ export function Am5App() {
     }, "경기를 종료했습니다.");
   }
 
-  async function saveResult(match: Match, teamAScore: number, teamBScore: number) {
+  async function saveResult(match: Match, teamAScore: number, teamBScore: number, options: { autoAssign?: boolean } = {}) {
     if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore === teamBScore) {
       showToast("승패가 갈리도록 점수를 입력해주세요.");
       return;
@@ -1585,7 +1627,7 @@ export function Am5App() {
     try {
       const body = await memberFetch("/api/member/matches/result", {
         method: "POST",
-        body: JSON.stringify({ matchId: match.id, teamAScore, teamBScore })
+        body: JSON.stringify({ matchId: match.id, teamAScore, teamBScore, autoAssign: options.autoAssign !== false })
       });
       await loadData();
 
@@ -1649,8 +1691,9 @@ export function Am5App() {
       return;
     }
 
-    await guarded(async () => {
-      await adminFetch("/api/admin/members", {
+    setBusy(true);
+    try {
+      const body = await adminFetch("/api/admin/members", {
         method: "POST",
         body: JSON.stringify({
           displayName,
@@ -1671,7 +1714,18 @@ export function Am5App() {
         gender: "male",
         seedWinRate: 50
       });
-    }, isGuest ? `게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.` : `회원을 추가했습니다. 초기 비밀번호는 ${DEFAULT_PASSWORD} 입니다.`);
+      await loadData();
+
+      if (isGuest) {
+        showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.`);
+      } else {
+        showToast(`회원을 추가했습니다. 초기 비밀번호는 ${DEFAULT_PASSWORD} 입니다.`);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "회원 추가에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function setMemberRole(member: Profile, role: Role) {
@@ -1876,9 +1930,6 @@ export function Am5App() {
               </button>
             </>
           )}
-          <button className="icon-button" title="새로고침" type="button" onClick={() => guarded(loadData)}>
-            <RefreshCw size={19} />
-          </button>
           <button className="icon-button" title="로그아웃" type="button" onClick={signOut}>
             <LogOut size={19} />
           </button>
@@ -1891,7 +1942,13 @@ export function Am5App() {
             <section className="hero-panel">
               <div>
                 <p className="eyebrow">{formatDate(today)}</p>
-                <h1>{todayMeeting ? "오늘 모임" : "모임 없음"}</h1>
+                <div className="today-title-row">
+                  <h1>{todayMeeting ? "오늘 모임" : "모임 없음"}</h1>
+                  <button className="small-button primary today-refresh-button" disabled={busy} type="button" onClick={() => guarded(loadData, "업데이트했습니다.")}>
+                    <RefreshCw size={18} />
+                    업데이트
+                  </button>
+                </div>
               </div>
               <span className={classNames("attendance-badge", isPresent && "active")}>{isPresent ? "출석 중" : "미출석"}</span>
             </section>
@@ -1932,9 +1989,13 @@ export function Am5App() {
 
             <section className="panel">
               <div className="section-head">
-                <h2>진행 중</h2>
+                <h2>진행 중 다른 경기</h2>
               </div>
-              {currentMatches.length ? currentMatches.map((match) => renderMatchCard(match, false)) : <p className="empty">진행 중인 경기가 없습니다.</p>}
+              {otherCurrentMatches.length ? (
+                otherCurrentMatches.map((match) => renderMatchCard(match, false))
+              ) : (
+                <p className="empty">진행 중인 다른 경기가 없습니다.</p>
+              )}
             </section>
           </div>
         )}
@@ -2028,6 +2089,16 @@ export function Am5App() {
                           <span>종료 {formatTime(match.ended_at)}</span>
                           <span>{minutes === null ? "소요 -" : `${minutes}분`}</span>
                         </div>
+
+                        {isAdmin && (
+                          <ResultForm
+                            disabled={busy}
+                            match={match}
+                            onSave={(targetMatch, teamAScore, teamBScore) =>
+                              saveResult(targetMatch, teamAScore, teamBScore, { autoAssign: false })
+                            }
+                          />
+                        )}
                       </article>
                     );
                   })}
@@ -2329,10 +2400,10 @@ export function Am5App() {
             <section className="panel">
               <div className="section-head">
                 <h2>회원 목록</h2>
-                <span className="count-chip">{profiles.length}</span>
+                <span className="count-chip">{regularProfiles.length}</span>
               </div>
               <div className="member-list">
-                {profiles.map((member) => {
+                {regularProfiles.map((member) => {
                   const draft = memberDrafts[member.id] ?? {
                     display_name: member.display_name,
                     phone: member.phone,
@@ -2345,8 +2416,7 @@ export function Am5App() {
                   return (
                     <article className="member-card" key={member.id}>
                       <div className="section-head">
-                        <h3>{member.is_guest ? "게스트" : "회원"}</h3>
-                        {member.is_guest && <span className="status-pill in_progress">임시</span>}
+                        <h3>회원</h3>
                       </div>
                       <div className="member-form">
                         <label>

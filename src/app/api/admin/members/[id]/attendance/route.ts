@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { autoAssignMatches, type AssignedMatchSummary } from "@/lib/server-matchmaker";
+import { autoAssignMatches, checkoutMemberAndReassign, type AssignedMatchSummary } from "@/lib/server-matchmaker";
 import { requireAdmin } from "@/lib/server-supabase";
 
 function validDateKey(value: string) {
@@ -55,54 +55,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return NextResponse.json({ message: "오늘 모임이 아직 생성되지 않았습니다." }, { status: 400 });
     }
 
-    const { data: activeMatches, error: activeMatchError } = await gate.admin
-      .from("matches")
-      .select("id")
-      .eq("meeting_id", meeting.id)
-      .in("status", ["scheduled", "in_progress"]);
+    try {
+      const result = await checkoutMemberAndReassign({
+        admin: gate.admin,
+        meetingId: meeting.id,
+        memberId: id,
+        currentUserId: id
+      });
 
-    if (activeMatchError) {
-      return NextResponse.json({ message: activeMatchError.message }, { status: 400 });
+      return NextResponse.json({ ok: true, ...result });
+    } catch (error) {
+      return NextResponse.json({ message: error instanceof Error ? error.message : "퇴장 처리에 실패했습니다." }, { status: 400 });
     }
-
-    const activeMatchIds = (activeMatches ?? []).map((match) => match.id);
-
-    if (activeMatchIds.length > 0) {
-      const { data: activePlayer, error: activePlayerError } = await gate.admin
-        .from("match_players")
-        .select("id")
-        .eq("member_id", id)
-        .in("match_id", activeMatchIds)
-        .limit(1)
-        .maybeSingle();
-
-      if (activePlayerError) {
-        return NextResponse.json({ message: activePlayerError.message }, { status: 400 });
-      }
-
-      if (activePlayer) {
-        return NextResponse.json({ message: "경기에 참여 중인 회원은 퇴장할 수 없습니다." }, { status: 400 });
-      }
-    }
-
-    const { data: attendance, error: attendanceError } = await gate.admin
-      .from("attendances")
-      .update({ checked_out_at: new Date().toISOString() })
-      .eq("meeting_id", meeting.id)
-      .eq("member_id", id)
-      .is("checked_out_at", null)
-      .select("id")
-      .maybeSingle();
-
-    if (attendanceError) {
-      return NextResponse.json({ message: attendanceError.message }, { status: 400 });
-    }
-
-    if (!attendance) {
-      return NextResponse.json({ message: "출석 중인 회원이 아닙니다." }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
   }
 
   const now = new Date().toISOString();

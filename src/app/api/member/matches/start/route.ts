@@ -41,6 +41,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: matchLookupError?.message ?? "경기를 확인할 수 없습니다." }, { status: 400 });
   }
 
+  if (match.status === "in_progress" || match.started_at) {
+    return NextResponse.json({ message: "이미 시작된 경기입니다." }, { status: 409 });
+  }
+
   if (match.status !== "scheduled") {
     return NextResponse.json({ message: "예정 상태인 경기만 시작할 수 있습니다." }, { status: 400 });
   }
@@ -60,16 +64,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "가용한 코트가 없어 경기를 시작할 수 없습니다." }, { status: 400 });
   }
 
-  const { error } = await admin
+  const { data: updatedMatch, error } = await admin
     .from("matches")
     .update({
       status: "in_progress",
       started_at: match.started_at ?? new Date().toISOString()
     })
-    .eq("id", matchId);
+    .eq("id", matchId)
+    .eq("status", "scheduled")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json({ message: error.message }, { status: 400 });
+  }
+
+  if (!updatedMatch) {
+    return NextResponse.json({ message: "이미 시작된 경기입니다." }, { status: 409 });
   }
 
   return NextResponse.json({ ok: true });

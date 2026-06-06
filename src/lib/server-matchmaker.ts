@@ -12,6 +12,12 @@ export type AssignedMatchSummary = {
   includesCurrentUser: boolean;
 };
 
+export type CheckoutReassignResult = {
+  canceledMatchCount: number;
+  assignedMatches: AssignedMatchSummary[];
+  assignmentWarning: string | null;
+};
+
 export async function autoAssignMatches({
   admin,
   meetingId,
@@ -93,4 +99,115 @@ export async function autoAssignMatches({
   }
 
   return assignedMatches;
+}
+
+export async function checkoutMemberAndReassign({
+  admin,
+  meetingId,
+  memberId,
+  currentUserId
+}: {
+  admin: SupabaseClient;
+  meetingId: string;
+  memberId: string;
+  currentUserId: string;
+}): Promise<CheckoutReassignResult> {
+  const { data: activeAttendance, error: activeAttendanceError } = await admin
+    .from("attendances")
+    .select("id")
+    .eq("meeting_id", meetingId)
+    .eq("member_id", memberId)
+    .is("checked_out_at", null)
+    .maybeSingle();
+
+  if (activeAttendanceError) {
+    throw new Error(activeAttendanceError.message);
+  }
+
+  if (!activeAttendance) {
+    throw new Error("출석 중인 회원이 아닙니다.");
+  }
+
+  const { data: activeMatches, error: activeMatchError } = await admin
+    .from("matches")
+    .select("id, status")
+    .eq("meeting_id", meetingId)
+    .in("status", ["scheduled", "in_progress"]);
+
+  if (activeMatchError) {
+    throw new Error(activeMatchError.message);
+  }
+
+  const matchById = new Map(((activeMatches ?? []) as Pick<Match, "id" | "status">[]).map((match) => [match.id, match]));
+  const activeMatchIds = Array.from(matchById.keys());
+  let scheduledMatchIds: string[] = [];
+
+  if (activeMatchIds.length > 0) {
+    const { data: activePlayers, error: activePlayerError } = await admin
+      .from("match_players")
+      .select("match_id")
+      .eq("member_id", memberId)
+      .in("match_id", activeMatchIds);
+
+    if (activePlayerError) {
+      throw new Error(activePlayerError.message);
+    }
+
+    const memberActivePlayers = (activePlayers ?? []) as Pick<MatchPlayer, "match_id">[];
+    const inProgressMatch = memberActivePlayers.some((player) => matchById.get(player.match_id)?.status === "in_progress");
+
+    if (inProgressMatch) {
+      throw new Error("진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료한 뒤 퇴장해주세요.");
+    }
+
+    scheduledMatchIds = Array.from(
+      new Set(
+        memberActivePlayers
+          .filter((player) => matchById.get(player.match_id)?.status === "scheduled")
+          .map((player) => player.match_id)
+      )
+    );
+  }
+
+  if (scheduledMatchIds.length > 0) {
+    const { error: cancelError } = await admin.from("matches").delete().in("id", scheduledMatchIds);
+
+    if (cancelError) {
+      throw new Error(cancelError.message);
+    }
+  }
+
+  const { data: attendance, error: attendanceError } = await admin
+    .from("attendances")
+    .update({ checked_out_at: new Date().toISOString() })
+    .eq("id", activeAttendance.id)
+    .select("id")
+    .maybeSingle();
+
+  if (attendanceError) {
+    throw new Error(attendanceError.message);
+  }
+
+  if (!attendance) {
+    throw new Error("퇴장 처리할 출석 기록을 찾을 수 없습니다.");
+  }
+
+  let assignedMatches: AssignedMatchSummary[] = [];
+  let assignmentWarning: string | null = null;
+
+  try {
+    assignedMatches = await autoAssignMatches({
+      admin,
+      meetingId,
+      currentUserId
+    });
+  } catch (error) {
+    assignmentWarning = error instanceof Error ? error.message : "자동 대진 생성에 실패했습니다.";
+  }
+
+  return {
+    canceledMatchCount: scheduledMatchIds.length,
+    assignedMatches,
+    assignmentWarning
+  };
 }

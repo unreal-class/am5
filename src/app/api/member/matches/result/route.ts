@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   const matchId = String(body.matchId ?? "");
   const teamAScore = Number(body.teamAScore);
   const teamBScore = Number(body.teamBScore);
+  const autoAssign = body.autoAssign !== false;
 
   if (!matchId) {
     return NextResponse.json({ message: "경기 ID가 필요합니다." }, { status: 400 });
@@ -65,14 +66,16 @@ export async function POST(request: Request) {
 
   let assignedMatches: AssignedMatchSummary[] = [];
 
-  try {
-    assignedMatches = await autoAssignMatches({
-      admin,
-      meetingId: match.meeting_id,
-      currentUserId: gate.user.id
-    });
-  } catch {
-    assignedMatches = [];
+  if (autoAssign) {
+    try {
+      assignedMatches = await autoAssignMatches({
+        admin,
+        meetingId: match.meeting_id,
+        currentUserId: gate.user.id
+      });
+    } catch {
+      assignedMatches = [];
+    }
   }
 
   return NextResponse.json({ ok: true, assignedMatches });
