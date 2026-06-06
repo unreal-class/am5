@@ -369,6 +369,14 @@ code {
   gap: 12px;
 }
 
+.section-actions,
+.match-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .panel {
   display: grid;
   gap: 12px;
@@ -447,6 +455,10 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.match-head > div:first-child {
+  min-width: 0;
 }
 
 .teams {

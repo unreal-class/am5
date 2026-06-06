@@ -1138,6 +1138,13 @@ export function Am5App() {
         .sort((a, b) => a.round_number - b.round_number || a.court_number - b.court_number),
     [matches, selectedResultMeetingId]
   );
+  const allFinishedMatches = useMemo(
+    () =>
+      matches
+        .filter((match) => match.status === "finished")
+        .filter((match) => match.team_a_score !== null && match.team_b_score !== null),
+    [matches]
+  );
 
   const myMatchIds = useMemo(
     () => new Set(matchPlayers.filter((row) => row.member_id === profile?.id).map((row) => row.match_id)),
@@ -1767,6 +1774,41 @@ export function Am5App() {
     }, "회원을 삭제했습니다.");
   }
 
+  async function deleteMatchRecord(match: Match) {
+    const matchDate = formatDate(meetingDateById.get(match.meeting_id) ?? "");
+
+    if (!window.confirm(`${matchDate} 코트 ${courtName(match.court_number)} 라운드 ${match.round_number} 경기 기록을 삭제할까요?`)) return;
+
+    await guarded(async () => {
+      await adminFetch(`/api/admin/matches/${match.id}`, { method: "DELETE" });
+    }, "경기 기록을 삭제했습니다.");
+  }
+
+  async function deleteAllFinishedMatchRecords() {
+    const recordCount = allFinishedMatches.length;
+
+    if (recordCount === 0) {
+      showToast("삭제할 경기 기록이 없습니다.");
+      return;
+    }
+
+    if (!window.confirm(`완료된 전체 경기 기록 ${recordCount}건을 모두 삭제할까요?\n삭제하면 랭킹과 전적에서도 제외됩니다.`)) return;
+
+    setBusy(true);
+    try {
+      const body = await adminFetch("/api/admin/matches", {
+        method: "DELETE",
+        body: JSON.stringify({ confirmAllFinishedMatches: true })
+      });
+      await loadData();
+      showToast(`${body.deletedCount ?? recordCount}건의 경기 기록을 삭제했습니다.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "경기 기록 삭제에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     setSession(null);
@@ -2063,7 +2105,20 @@ export function Am5App() {
                             <span className="eyebrow">코트 {courtName(match.court_number)}</span>
                             <h3>라운드 {match.round_number}</h3>
                           </div>
-                          <span className={classNames("status-pill", "finished")}>종료</span>
+                          <div className="match-head-actions">
+                            <span className={classNames("status-pill", "finished")}>종료</span>
+                            {isAdmin && (
+                              <button
+                                className="icon-button danger"
+                                disabled={busy}
+                                title="경기 기록 삭제"
+                                type="button"
+                                onClick={() => deleteMatchRecord(match)}
+                              >
+                                <Trash2 size={17} />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         <div className="teams">
@@ -2603,7 +2658,19 @@ export function Am5App() {
             <section className="panel">
               <div className="section-head">
                 <h2>모든 경기 결과</h2>
-                <span className="count-chip">{todayFinishedMatches.length}</span>
+                <div className="section-actions">
+                  <span className="count-chip">{todayFinishedMatches.length}</span>
+                  <button
+                    className="small-button danger"
+                    disabled={busy || allFinishedMatches.length === 0}
+                    title="전체 경기 기록 삭제"
+                    type="button"
+                    onClick={deleteAllFinishedMatchRecords}
+                  >
+                    <Trash2 size={17} />
+                    전체 삭제
+                  </button>
+                </div>
               </div>
 
               {todayFinishedMatches.length ? (
@@ -2622,7 +2689,18 @@ export function Am5App() {
                               코트 {courtName(match.court_number)} · 라운드 {match.round_number}
                             </h3>
                           </div>
-                          <span className={classNames("status-pill", "finished")}>종료</span>
+                          <div className="match-head-actions">
+                            <span className={classNames("status-pill", "finished")}>종료</span>
+                            <button
+                              className="icon-button danger"
+                              disabled={busy}
+                              title="경기 기록 삭제"
+                              type="button"
+                              onClick={() => deleteMatchRecord(match)}
+                            >
+                              <Trash2 size={17} />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="teams">
