@@ -19,8 +19,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "경기 ID가 필요합니다." }, { status: 400 });
   }
 
-  if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore < 0 || teamBScore < 0 || teamAScore === teamBScore) {
-    return NextResponse.json({ message: "승패가 갈리도록 점수를 입력해주세요." }, { status: 400 });
+  if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore < 0 || teamBScore < 0) {
+    return NextResponse.json({ message: "0 이상의 점수를 입력해주세요." }, { status: 400 });
   }
 
   const admin = gate.admin;
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       ended_at: match.ended_at ?? new Date().toISOString(),
       team_a_score: teamAScore,
       team_b_score: teamBScore,
-      winner_team: teamAScore > teamBScore ? "A" : "B"
+      winner_team: teamAScore === teamBScore ? null : teamAScore > teamBScore ? "A" : "B"
     })
     .eq("id", matchId);
 

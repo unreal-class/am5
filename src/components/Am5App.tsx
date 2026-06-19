@@ -67,6 +67,7 @@ type TestUser = {
   leftAt: string | null;
   games: number;
   wins: number;
+  draws: number;
   losses: number;
   seedRate: number;
 };
@@ -132,6 +133,25 @@ function winnerLabel(winner: Team | null) {
   return winner === "A" ? "A팀" : "B팀";
 }
 
+function matchHasResult(match: Match) {
+  return match.team_a_score !== null && match.team_b_score !== null;
+}
+
+function matchResultLabel(match: Match) {
+  const teamAScore = match.team_a_score;
+  const teamBScore = match.team_b_score;
+  if (teamAScore === null || teamBScore === null) return "결과 입력";
+  if (teamAScore === teamBScore) return "무승부";
+  const winner = match.winner_team ?? (teamAScore > teamBScore ? "A" : "B");
+  return `${winnerLabel(winner)} 승`;
+}
+
+function testResultLabel(match: TestMatch) {
+  if (match.teamAScore === null || match.teamBScore === null) return "결과 입력";
+  if (match.teamAScore === match.teamBScore) return "무승부";
+  return `${winnerLabel(match.winnerTeam)} 승`;
+}
+
 function statusLabel(status: Match["status"]) {
   if (status === "scheduled") return "예정";
   if (status === "in_progress") return "진행 중";
@@ -139,7 +159,7 @@ function statusLabel(status: Match["status"]) {
 }
 
 function matchDisplayStatus(match: Match) {
-  if (match.status === "finished" && match.winner_team) return "종료";
+  if (match.status === "finished" && matchHasResult(match)) return "종료";
   if (match.ended_at && !match.winner_team) return "결과 입력";
   return statusLabel(match.status);
 }
@@ -152,7 +172,7 @@ function testMatchStatusLabel(status: TestMatchStatus) {
 }
 
 function testUserRate(user: TestUser) {
-  return user.games > 0 ? (user.wins / user.games) * 100 : user.seedRate;
+  return user.games > 0 ? ((user.wins * 2 + user.draws) / (user.games * 2)) * 100 : user.seedRate;
 }
 
 function testCombinations<T>(items: T[], size: number): T[][] {
@@ -188,6 +208,7 @@ function makeTempUsers(startIndex: number, count: number) {
       leftAt: null,
       games: 0,
       wins: 0,
+      draws: 0,
       losses: 0,
       seedRate: 35 + ((offset * 7) % 45)
     } satisfies TestUser;
@@ -390,19 +411,23 @@ function TestConsole({ showToast }: { showToast: (message: string) => void }) {
     const teamAScore = Number(score.a);
     const teamBScore = Number(score.b);
 
-    if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore === teamBScore) {
-      showToast("승패가 갈리도록 점수를 입력해주세요.");
+    if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore < 0 || teamBScore < 0) {
+      showToast("0 이상의 점수를 입력해주세요.");
       return;
     }
 
-    const winnerTeam = teamAScore > teamBScore ? "A" : "B";
-    const winnerIds = winnerTeam === "A" ? match.teamA : match.teamB;
-    const loserIds = winnerTeam === "A" ? match.teamB : match.teamA;
+    const winnerTeam = teamAScore === teamBScore ? null : teamAScore > teamBScore ? "A" : "B";
+    const winnerIds = winnerTeam === "A" ? match.teamA : winnerTeam === "B" ? match.teamB : [];
+    const loserIds = winnerTeam === "A" ? match.teamB : winnerTeam === "B" ? match.teamA : [];
     const winnerSet = new Set(winnerIds);
     const loserSet = new Set(loserIds);
+    const playerSet = new Set([...match.teamA, ...match.teamB]);
 
     setTestUsers((users) =>
       users.map((user) => {
+        if (!winnerTeam && playerSet.has(user.id)) {
+          return { ...user, games: user.games + 1, draws: user.draws + 1 };
+        }
         if (winnerSet.has(user.id)) {
           return { ...user, games: user.games + 1, wins: user.wins + 1 };
         }
@@ -489,7 +514,7 @@ function TestConsole({ showToast }: { showToast: (message: string) => void }) {
                 <div>
                   <strong>{user.name}</strong>
                   <small>
-                    {genderLabels[user.gender]} · {user.games}전 {user.wins}승 {user.losses}패 · {formatRate(testUserRate(user))}
+                    {genderLabels[user.gender]} · {user.games}전 {user.wins}승 {user.draws}무 {user.losses}패 · {formatRate(testUserRate(user))}
                   </small>
                   <small>{user.present ? `입장 ${formatTime(user.enteredAt)}` : user.leftAt ? `퇴장 ${formatTime(user.leftAt)}` : "미입장"}</small>
                 </div>
@@ -612,7 +637,7 @@ function TestConsole({ showToast }: { showToast: (message: string) => void }) {
                         <strong>
                           {match.teamAScore} : {match.teamBScore}
                         </strong>
-                        <span>{winnerLabel(match.winnerTeam)} 승</span>
+                        <span>{testResultLabel(match)}</span>
                       </div>
                       <button className="full-button" type="button" onClick={() => clearCourt(court.courtNumber)}>
                         코트 비우기
@@ -1628,8 +1653,8 @@ export function Am5App() {
   }
 
   async function saveResult(match: Match, teamAScore: number, teamBScore: number, options: { autoAssign?: boolean } = {}) {
-    if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore === teamBScore) {
-      showToast("승패가 갈리도록 점수를 입력해주세요.");
+    if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore) || teamAScore < 0 || teamBScore < 0) {
+      showToast("0 이상의 점수를 입력해주세요.");
       return;
     }
 
@@ -1909,7 +1934,7 @@ export function Am5App() {
             <strong>
               {match.team_a_score} : {match.team_b_score}
             </strong>
-            <span>{winnerLabel(match.winner_team)} 승</span>
+            <span>{matchResultLabel(match)}</span>
           </div>
         )}
 
@@ -2139,7 +2164,7 @@ export function Am5App() {
                           <strong>
                             {match.team_a_score} : {match.team_b_score}
                           </strong>
-                          <span>{winnerLabel(match.winner_team)} 승</span>
+                          <span>{matchResultLabel(match)}</span>
                         </div>
 
                         <div className="match-meta">
@@ -2196,7 +2221,7 @@ export function Am5App() {
                   <div className="rank-stats">
                     <strong>{formatRate(row.winRate)}</strong>
                     <small>
-                      {row.games}전 {row.wins}승 {row.losses}패
+                      {row.games}전 {row.wins}승 {row.draws}무 {row.losses}패 · {row.points}점
                     </small>
                   </div>
                 </article>
@@ -2247,7 +2272,7 @@ export function Am5App() {
                     <div className="record-row" key={label as string}>
                       <span>{label as string}</span>
                       <strong>
-                        {row?.games ?? 0}전 {row?.wins ?? 0}승 {row?.losses ?? 0}패
+                        {row?.games ?? 0}전 {row?.wins ?? 0}승 {row?.draws ?? 0}무 {row?.losses ?? 0}패 · {row?.points ?? 0}점
                       </strong>
                       <span>{formatRate(row?.winRate ?? 0)}</span>
                     </div>
@@ -2721,7 +2746,7 @@ export function Am5App() {
                           <strong>
                             {match.team_a_score} : {match.team_b_score}
                           </strong>
-                          <span>{winnerLabel(match.winner_team)} 승</span>
+                          <span>{matchResultLabel(match)}</span>
                         </div>
 
                         <div className="match-meta">

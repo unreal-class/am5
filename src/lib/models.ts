@@ -86,7 +86,9 @@ export type MemberStats = {
   memberId: string;
   games: number;
   wins: number;
+  draws: number;
   losses: number;
+  points: number;
   winRate: number;
 };
 

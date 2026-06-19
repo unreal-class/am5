@@ -18,7 +18,9 @@ function emptyStats(memberId: string): MemberStats {
     memberId,
     games: 0,
     wins: 0,
+    draws: 0,
     losses: 0,
+    points: 0,
     winRate: 0
   };
 }
@@ -41,6 +43,10 @@ function resolveWinner(match: Match): Team | null {
   if (match.team_a_score === null || match.team_b_score === null) return null;
   if (match.team_a_score === match.team_b_score) return null;
   return match.team_a_score > match.team_b_score ? "A" : "B";
+}
+
+function hasRecordedScore(match: Match) {
+  return match.team_a_score !== null && match.team_b_score !== null;
 }
 
 export function buildStats(
@@ -66,17 +72,25 @@ export function buildStats(
 
   matches
     .filter((match) => match.status === "finished")
+    .filter(hasRecordedScore)
     .filter((match) => isInScope(match, meetingById, scope))
     .forEach((match) => {
       const winner = resolveWinner(match);
-      if (!winner) return;
+      const isDraw = !winner && match.team_a_score === match.team_b_score;
 
       for (const player of playersByMatch.get(match.id) ?? []) {
         const row = stats.get(player.member_id) ?? emptyStats(player.member_id);
         row.games += 1;
-        if (player.team === winner) row.wins += 1;
-        else row.losses += 1;
-        row.winRate = row.games > 0 ? (row.wins / row.games) * 100 : 0;
+        if (isDraw) {
+          row.draws += 1;
+          row.points += 1;
+        } else if (player.team === winner) {
+          row.wins += 1;
+          row.points += 2;
+        } else {
+          row.losses += 1;
+        }
+        row.winRate = row.games > 0 ? (row.points / (row.games * 2)) * 100 : 0;
         stats.set(player.member_id, row);
       }
     });
@@ -101,6 +115,7 @@ export function getRankings(
       gender: profile.gender
     }))
     .sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
       if (b.winRate !== a.winRate) return b.winRate - a.winRate;
       if (b.games !== a.games) return b.games - a.games;
       if (b.wins !== a.wins) return b.wins - a.wins;
@@ -110,6 +125,7 @@ export function getRankings(
       const previous = rows[index - 1];
       const tied =
         previous &&
+        previous.points === row.points &&
         previous.winRate === row.winRate &&
         previous.games === row.games &&
         previous.wins === row.wins;
