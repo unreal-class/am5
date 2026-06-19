@@ -890,7 +890,7 @@ function AuthScreen({
           <div>
             <div className="brand-title-row">
               <h1>경기 관리</h1>
-              <span className="environment-badge">PRODUCTION</span>
+              <span className="environment-badge">PRODUCTION v2</span>
             </div>
             <p className="muted">테니스 모임 운영</p>
           </div>
