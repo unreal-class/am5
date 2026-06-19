@@ -888,7 +888,10 @@ function AuthScreen({
         <div className="brand-row">
           <div className="brand-mark">AM5</div>
           <div>
-            <h1>경기 관리</h1>
+            <div className="brand-title-row">
+              <h1>경기 관리</h1>
+              <span className="environment-badge">PRODUCTION</span>
+            </div>
             <p className="muted">테니스 모임 운영</p>
           </div>
         </div>
