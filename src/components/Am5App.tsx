@@ -1152,8 +1152,8 @@ export function Am5App() {
     [profile, profiles, meetings, matches, matchPlayers]
   );
   const rankingRows = useMemo(
-    () => getRankings(profiles, meetings, matches, matchPlayers, rankingScope),
-    [profiles, meetings, matches, matchPlayers, rankingScope]
+    () => getRankings(regularProfiles, meetings, matches, matchPlayers, rankingScope),
+    [regularProfiles, meetings, matches, matchPlayers, rankingScope]
   );
   const meetingDateById = useMemo(() => new Map(meetings.map((meeting) => [meeting.id, meeting.meeting_date])), [meetings]);
   const selectedResultMeetingId = resultMeetingId || meetings[0]?.id || "";
@@ -2120,7 +2120,7 @@ export function Am5App() {
                 <span className="count-chip">{resultMatches.length}</span>
               </div>
               {resultMatches.length ? (
-                <div className="ranking-list">
+                <div className="match-list">
                   {resultMatches.map((match) => {
                     const teamA = matchTeam(match.id, "A");
                     const teamB = matchTeam(match.id, "B");
@@ -2702,7 +2702,7 @@ export function Am5App() {
               </div>
 
               {todayFinishedMatches.length ? (
-                <div className="ranking-list">
+                <div className="match-list">
                   {todayFinishedMatches.map((match) => {
                     const teamA = matchTeam(match.id, "A");
                     const teamB = matchTeam(match.id, "B");

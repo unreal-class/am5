@@ -59,9 +59,12 @@ export function buildStats(
   const stats = new Map<string, MemberStats>();
   const meetingById = new Map(meetings.map((meeting) => [meeting.id, meeting]));
   const playersByMatch = new Map<string, MatchPlayer[]>();
+  const rankedMemberIds = new Set(profiles.filter((profile) => !profile.is_guest).map((profile) => profile.id));
 
   profiles.forEach((profile) => {
-    stats.set(profile.id, emptyStats(profile.id));
+    if (!profile.is_guest) {
+      stats.set(profile.id, emptyStats(profile.id));
+    }
   });
 
   players.forEach((player) => {
@@ -79,6 +82,8 @@ export function buildStats(
       const isDraw = !winner && match.team_a_score === match.team_b_score;
 
       for (const player of playersByMatch.get(match.id) ?? []) {
+        if (!rankedMemberIds.has(player.member_id)) continue;
+
         const row = stats.get(player.member_id) ?? emptyStats(player.member_id);
         row.games += 1;
         if (isDraw) {
@@ -108,6 +113,7 @@ export function getRankings(
   const stats = buildStats(profiles, meetings, matches, players, scope);
 
   return profiles
+    .filter((profile) => !profile.is_guest)
     .map((profile) => ({
       ...(stats.get(profile.id) ?? emptyStats(profile.id)),
       rank: 0,
