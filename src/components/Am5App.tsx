@@ -15,7 +15,6 @@ import {
   RotateCcw,
   Save,
   Shield,
-  SquarePen,
   StopCircle,
   Trash2,
   Trophy,
@@ -2189,9 +2188,6 @@ export function Am5App() {
               </button>
               <button className={classNames("icon-button", tab === "monitor" && "active")} title="현황" type="button" onClick={() => setTab("monitor")}>
                 <Activity size={19} />
-              </button>
-              <button className={classNames("icon-button", tab === "test" && "active")} title="테스트" type="button" onClick={() => setTab("test")}>
-                <SquarePen size={19} />
               </button>
               <button className={classNames("icon-button", tab === "courts" && "active")} title="코트" type="button" onClick={() => setTab("courts")}>
                 <Medal size={19} />
