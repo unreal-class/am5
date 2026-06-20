@@ -674,6 +674,42 @@ code {
   padding: 12px;
 }
 
+.member-card.guest {
+  border-color: #f1d9a7;
+  background: #fffaf0;
+}
+
+.member-management-groups,
+.member-group {
+  display: grid;
+  gap: 12px;
+}
+
+.member-group {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.member-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.member-group.guest {
+  border-color: #f1d9a7;
+}
+
+.member-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.member-group-head h3 {
+  margin: 0;
+}
+
 .member-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

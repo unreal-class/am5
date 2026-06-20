@@ -1152,6 +1152,18 @@ export function Am5App() {
 
     return latest;
   }, [todayAttendances]);
+  const memberManagementProfiles = useMemo(() => {
+    const todayGuestIds = new Set(todayAttendances.map((attendance) => attendance.member_id));
+    return visibleProfiles.filter((row) => !row.is_guest || todayGuestIds.has(row.id));
+  }, [todayAttendances, visibleProfiles]);
+  const memberManagementMembers = useMemo(
+    () => memberManagementProfiles.filter((row) => !row.is_guest),
+    [memberManagementProfiles]
+  );
+  const memberManagementGuests = useMemo(
+    () => memberManagementProfiles.filter((row) => row.is_guest),
+    [memberManagementProfiles]
+  );
   const todayMatches = useMemo(
     () =>
       matches
@@ -1984,6 +1996,168 @@ export function Am5App() {
     );
   }
 
+  function renderMemberManagementCard(member: Profile) {
+    const latestAttendance = todayLatestAttendanceByMemberId.get(member.id);
+    const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
+    const draft = memberDrafts[member.id] ?? {
+      display_name: member.display_name,
+      phone: member.phone,
+      gender: member.gender,
+      role: member.role,
+      seed_win_rate: member.seed_win_rate
+    };
+    const nextRole = member.role === "admin" ? "member" : "admin";
+
+    return (
+      <article className={classNames("member-card", member.is_guest && "guest")} key={member.id}>
+        {!member.is_guest && (
+          <div className="section-head">
+            <h3>회원</h3>
+          </div>
+        )}
+        <div className="member-form">
+          <label>
+            이름
+            <input
+              value={draft.display_name}
+              onChange={(event) =>
+                setMemberDrafts((rows) => ({
+                  ...rows,
+                  [member.id]: { ...draft, display_name: event.target.value }
+                }))
+              }
+            />
+          </label>
+          <label>
+            전화번호
+            <input
+              inputMode="tel"
+              value={draft.phone}
+              onChange={(event) =>
+                setMemberDrafts((rows) => ({
+                  ...rows,
+                  [member.id]: { ...draft, phone: event.target.value }
+                }))
+              }
+            />
+          </label>
+          <label>
+            성별
+            <select
+              value={draft.gender}
+              onChange={(event) =>
+                setMemberDrafts((rows) => ({
+                  ...rows,
+                  [member.id]: { ...draft, gender: event.target.value as Gender }
+                }))
+              }
+            >
+              <option value="male">남성</option>
+              <option value="female">여성</option>
+              <option value="other">기타</option>
+            </select>
+          </label>
+          {!member.is_guest && (
+            <label>
+              권한
+              <select
+                value={draft.role}
+                onChange={(event) =>
+                  setMemberDrafts((rows) => ({
+                    ...rows,
+                    [member.id]: { ...draft, role: event.target.value as Role }
+                  }))
+                }
+              >
+                <option value="member">회원</option>
+                <option value="admin">관리자</option>
+              </select>
+            </label>
+          )}
+          <label>
+            기준 승률 (%)
+            <input
+              inputMode="decimal"
+              max={100}
+              min={0}
+              step={0.1}
+              type="number"
+              value={draft.seed_win_rate}
+              onChange={(event) =>
+                setMemberDrafts((rows) => ({
+                  ...rows,
+                  [member.id]: { ...draft, seed_win_rate: Number(event.target.value) }
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="member-status-row">
+          <div>
+            <strong>오늘 출석</strong>
+            <small>
+              {isCheckedIn
+                ? `출석 ${formatTime(latestAttendance?.checked_in_at)}`
+                : latestAttendance?.checked_out_at
+                  ? `최근 퇴장 ${formatTime(latestAttendance.checked_out_at)}`
+                  : "오늘 출석 기록 없음"}
+            </small>
+          </div>
+          <span className={classNames("status-pill", isCheckedIn && "in_progress")}>
+            {isCheckedIn ? "출석 중" : latestAttendance?.checked_out_at ? "퇴장 완료" : "미출석"}
+          </span>
+        </div>
+
+        <div className="member-attendance-actions">
+          <button
+            className="small-button primary"
+            disabled={busy || isCheckedIn}
+            type="button"
+            onClick={() => setMemberAttendance(member, "check-in")}
+          >
+            <CheckCircle2 size={16} />
+            출석
+          </button>
+          <button
+            className="small-button danger"
+            disabled={busy || !isCheckedIn}
+            type="button"
+            onClick={() => setMemberAttendance(member, "check-out")}
+          >
+            <DoorOpen size={16} />
+            퇴장
+          </button>
+        </div>
+
+        <div className="member-actions">
+          <button className="icon-button primary" disabled={busy} title="저장" type="button" onClick={() => updateMember(member.id)}>
+            <Save size={17} />
+          </button>
+          {!member.is_guest && (
+            <>
+              <button className="icon-button" disabled={busy} title="비밀번호 초기화" type="button" onClick={() => resetPassword(member.id)}>
+                <RotateCcw size={17} />
+              </button>
+              <button
+                className={classNames("icon-button", member.role === "admin" ? "danger" : "primary")}
+                disabled={busy || (member.id === profile?.id && member.role === "admin")}
+                title={member.role === "admin" ? "관리자 권한 삭제" : "관리자 권한 부여"}
+                type="button"
+                onClick={() => setMemberRole(member, nextRole)}
+              >
+                {member.role === "admin" ? <User size={17} /> : <Shield size={17} />}
+              </button>
+            </>
+          )}
+          <button className="icon-button danger" disabled={busy} title="삭제" type="button" onClick={() => deleteMember(member.id)}>
+            <Trash2 size={17} />
+          </button>
+        </div>
+      </article>
+    );
+  }
+
   if (loading) {
     return (
       <main className="splash">
@@ -2021,9 +2195,6 @@ export function Am5App() {
               </button>
               <button className={classNames("icon-button", tab === "courts" && "active")} title="코트" type="button" onClick={() => setTab("courts")}>
                 <Medal size={19} />
-              </button>
-              <button className={classNames("icon-button", tab === "admin" && "active")} title="관리" type="button" onClick={() => setTab("admin")}>
-                <Shield size={19} />
               </button>
             </>
           )}
@@ -2459,123 +2630,30 @@ export function Am5App() {
             <section className="panel">
               <div className="section-head">
                 <h2>회원 목록</h2>
-                <span className="count-chip">{regularProfiles.length}</span>
+                <span className="count-chip">{memberManagementProfiles.length}</span>
               </div>
-              <div className="member-list">
-                {regularProfiles.map((member) => {
-                  const draft = memberDrafts[member.id] ?? {
-                    display_name: member.display_name,
-                    phone: member.phone,
-                    gender: member.gender,
-                    role: member.role,
-                    seed_win_rate: member.seed_win_rate
-                  };
-                  const nextRole = member.role === "admin" ? "member" : "admin";
+              <div className="member-management-groups">
+                <div className="member-group">
+                  <div className="member-group-head">
+                    <h3>회원</h3>
+                    <span className="count-chip">{memberManagementMembers.length}</span>
+                  </div>
+                  <div className="member-list">
+                    {memberManagementMembers.map((member) => renderMemberManagementCard(member))}
+                  </div>
+                </div>
 
-                  return (
-                    <article className="member-card" key={member.id}>
-                      <div className="section-head">
-                        <h3>회원</h3>
-                      </div>
-                      <div className="member-form">
-                        <label>
-                          이름
-                          <input
-                            value={draft.display_name}
-                            onChange={(event) =>
-                              setMemberDrafts((rows) => ({
-                                ...rows,
-                                [member.id]: { ...draft, display_name: event.target.value }
-                              }))
-                            }
-                          />
-                        </label>
-                        <label>
-                          전화번호
-                          <input
-                            inputMode="tel"
-                            value={draft.phone}
-                            onChange={(event) =>
-                              setMemberDrafts((rows) => ({
-                                ...rows,
-                                [member.id]: { ...draft, phone: event.target.value }
-                              }))
-                            }
-                          />
-                        </label>
-                        <label>
-                          성별
-                          <select
-                            value={draft.gender}
-                            onChange={(event) =>
-                              setMemberDrafts((rows) => ({
-                                ...rows,
-                                [member.id]: { ...draft, gender: event.target.value as Gender }
-                              }))
-                            }
-                          >
-                            <option value="male">남성</option>
-                            <option value="female">여성</option>
-                            <option value="other">기타</option>
-                          </select>
-                        </label>
-                        <label>
-                          권한
-                          <select
-                            value={draft.role}
-                            onChange={(event) =>
-                              setMemberDrafts((rows) => ({
-                                ...rows,
-                                [member.id]: { ...draft, role: event.target.value as Role }
-                              }))
-                            }
-                          >
-                            <option value="member">회원</option>
-                            <option value="admin">관리자</option>
-                          </select>
-                        </label>
-                        <label>
-                          기준 승률 (%)
-                          <input
-                            inputMode="decimal"
-                            max={100}
-                            min={0}
-                            step={0.1}
-                            type="number"
-                            value={draft.seed_win_rate}
-                            onChange={(event) =>
-                              setMemberDrafts((rows) => ({
-                                ...rows,
-                                [member.id]: { ...draft, seed_win_rate: Number(event.target.value) }
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-
-                      <div className="member-actions">
-                        <button className="icon-button primary" disabled={busy} title="저장" type="button" onClick={() => updateMember(member.id)}>
-                          <Save size={17} />
-                        </button>
-                        <button className="icon-button" disabled={busy} title="비밀번호 초기화" type="button" onClick={() => resetPassword(member.id)}>
-                          <RotateCcw size={17} />
-                        </button>
-                        <button
-                          className={classNames("icon-button", member.role === "admin" ? "danger" : "primary")}
-                          disabled={busy || (member.id === profile?.id && member.role === "admin")}
-                          title={member.role === "admin" ? "관리자 권한 삭제" : "관리자 권한 부여"}
-                          type="button"
-                          onClick={() => setMemberRole(member, nextRole)}
-                        >
-                          {member.role === "admin" ? <User size={17} /> : <Shield size={17} />}
-                        </button>
-                        <button className="icon-button danger" disabled={busy} title="삭제" type="button" onClick={() => deleteMember(member.id)}>
-                          <Trash2 size={17} />
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
+                {memberManagementGuests.length > 0 && (
+                  <div className="member-group guest">
+                    <div className="member-group-head">
+                      <h3>당일 게스트</h3>
+                      <span className="count-chip">{memberManagementGuests.length}</span>
+                    </div>
+                    <div className="member-list">
+                      {memberManagementGuests.map((member) => renderMemberManagementCard(member))}
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           </div>
