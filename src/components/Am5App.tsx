@@ -21,8 +21,10 @@ import {
   UserPlus,
   Users
 } from "lucide-react";
+import Image from "next/image";
 import type { Session } from "@supabase/supabase-js";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import am5Logo from "@/am5_logo_transparent.png";
 import { loginIdToEmail, normalizeLoginId } from "@/lib/auth-id";
 import {
   currentMonthKey,
@@ -926,7 +928,7 @@ function AuthScreen({
     <main className="auth-layout">
       <section className="auth-card">
         <div className="brand-row">
-          <div className="brand-mark">AM5</div>
+          <Image className="auth-logo" src={am5Logo} alt="AM5 Tennis Club" priority />
           <div>
             <div className="brand-title-row">
               <h1>경기 관리</h1>
