@@ -69,7 +69,8 @@ export async function autoAssignMatches({
         meeting_id: meetingId,
         court_number: generatedMatch.court_number,
         round_number: generatedMatch.round_number,
-        status: "scheduled"
+        status: "in_progress",
+        started_at: new Date().toISOString()
       })
       .select("*")
       .single();

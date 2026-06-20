@@ -145,6 +145,14 @@ function matchHasResult(match: Match) {
   return match.team_a_score !== null && match.team_b_score !== null;
 }
 
+function isAssignedInProgress(match: Match) {
+  return !match.ended_at && (match.status === "scheduled" || match.status === "in_progress" || Boolean(match.started_at));
+}
+
+function matchStatusClass(match: Match) {
+  return isAssignedInProgress(match) ? "in_progress" : match.status;
+}
+
 function matchResultLabel(match: Match) {
   const teamAScore = match.team_a_score;
   const teamBScore = match.team_b_score;
@@ -169,6 +177,7 @@ function statusLabel(status: Match["status"]) {
 function matchDisplayStatus(match: Match) {
   if (match.status === "finished" && matchHasResult(match)) return "종료";
   if (match.ended_at && !match.winner_team) return "결과 입력";
+  if (isAssignedInProgress(match)) return "진행 중";
   return statusLabel(match.status);
 }
 
@@ -1650,7 +1659,8 @@ export function Am5App() {
             meeting_id: todayMeeting.id,
             court_number: generatedMatch.court_number,
             round_number: generatedMatch.round_number,
-            status: "scheduled"
+            status: "in_progress",
+            started_at: new Date().toISOString()
           })
           .select("id")
           .single();
@@ -1665,23 +1675,6 @@ export function Am5App() {
         if (playerError) throw playerError;
       }
     }, "대진표를 생성했습니다.");
-  }
-
-  async function startMatch(match: Match) {
-    setBusy(true);
-    try {
-      await memberFetch("/api/member/matches/start", {
-        method: "POST",
-        body: JSON.stringify({ matchId: match.id })
-      });
-      await loadData();
-      showToast("경기를 시작했습니다.");
-    } catch (error) {
-      await loadData();
-      showToast(error instanceof Error ? error.message : "경기 시작에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function finishMatch(match: Match) {
@@ -1932,8 +1925,7 @@ export function Am5App() {
     const minutes = elapsedMinutes(match.started_at, match.ended_at);
     const mine = profile ? [...teamA, ...teamB].includes(profile.id) : false;
     const canManageMatch = isAdmin || mine;
-    const canStartMatch = canManageMatch && match.status === "scheduled" && availableCourtNumbers.includes(match.court_number);
-    const canFinishMatch = canManageMatch && !match.ended_at && match.status !== "finished";
+    const canFinishMatch = canManageMatch && isAssignedInProgress(match);
     const canRecordResult =
       canManageMatch &&
       Boolean(match.ended_at) &&
@@ -1946,7 +1938,7 @@ export function Am5App() {
             <span className="eyebrow">코트 {courtName(match.court_number)}</span>
             <h3>{matchDisplayStatus(match)}</h3>
           </div>
-          <span className={classNames("status-pill", match.status)}>{matchDisplayStatus(match)}</span>
+          <span className={classNames("status-pill", matchStatusClass(match))}>{matchDisplayStatus(match)}</span>
         </div>
 
         <div className="teams">
@@ -1980,10 +1972,6 @@ export function Am5App() {
         {canManageMatch && (
           <>
             <div className="match-actions">
-              <button className="small-button" disabled={busy || !canStartMatch} type="button" onClick={() => startMatch(match)}>
-                <Play size={16} />
-                시작
-              </button>
               <button className="small-button" disabled={busy || !canFinishMatch} type="button" onClick={() => finishMatch(match)}>
                 <StopCircle size={16} />
                 종료
@@ -2067,6 +2055,11 @@ export function Am5App() {
                   </div>
                   <span className={classNames("attendance-badge", "active")}>출석 중</span>
                 </section>
+                {!myResultPendingMatch && (
+                  <p className="match-notice">
+                    경기 종료 시 선수들 중 한 명은 반드시 종료 버튼을 누르고, 경기 결과를 입력해야 합니다.
+                  </p>
+                )}
                 {renderMatchCard(myTodayMatch)}
               </>
             ) : (
@@ -2607,8 +2600,7 @@ export function Am5App() {
                   const match = row.inProgressMatch ?? row.nextScheduledMatch;
                   const teamA = match ? matchTeam(match.id, "A") : [];
                   const teamB = match ? matchTeam(match.id, "B") : [];
-                  const canStart = Boolean(match && match.status === "scheduled" && availableCourtNumbers.includes(match.court_number));
-                  const canFinish = Boolean(match && match.status === "in_progress" && !match.ended_at);
+                  const canFinish = Boolean(match && isAssignedInProgress(match));
                   const canRecordResult = Boolean(match && match.ended_at && match.team_a_score === null && match.team_b_score === null);
 
                   return (
@@ -2616,9 +2608,9 @@ export function Am5App() {
                       <div className="match-head">
                         <div>
                           <p className="eyebrow">코트 {courtName(row.courtNumber)}</p>
-                          <h3>{row.inProgressMatch ? "진행 중" : row.nextScheduledMatch ? "대기 경기" : "배정 없음"}</h3>
+                          <h3>{match ? "진행 중" : "배정 없음"}</h3>
                         </div>
-                        <span className={classNames("status-pill", match?.status)}>{match ? matchDisplayStatus(match) : "비어 있음"}</span>
+                        <span className={classNames("status-pill", match ? matchStatusClass(match) : undefined)}>{match ? matchDisplayStatus(match) : "비어 있음"}</span>
                       </div>
 
                       <div className="match-meta">
@@ -2646,10 +2638,6 @@ export function Am5App() {
                             <span>종료 {formatTime(match.ended_at)}</span>
                           </div>
                           <div className="match-actions">
-                            <button className="small-button" disabled={busy || !canStart} type="button" onClick={() => startMatch(match)}>
-                              <Play size={16} />
-                              시작
-                            </button>
                             <button className="small-button" disabled={busy || !canFinish} type="button" onClick={() => finishMatch(match)}>
                               <StopCircle size={16} />
                               종료
