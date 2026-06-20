@@ -8,7 +8,6 @@ import {
   DoorOpen,
   Home,
   KeyRound,
-  ListChecks,
   LogOut,
   Medal,
   Play,
@@ -54,7 +53,7 @@ import { generateMatches } from "@/lib/scheduler";
 import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-type Tab = "today" | "draw" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
+type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
 type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role" | "seed_win_rate">;
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
@@ -2273,24 +2272,6 @@ export function Am5App() {
           </div>
         )}
 
-        {tab === "draw" && (
-          <div className="screen">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">{todayMeeting ? formatDate(todayMeeting.meeting_date) : formatDate(today)}</p>
-                <h1>대진표</h1>
-              </div>
-              {isAdmin && (
-                <button className="small-button primary" disabled={!todayMeeting || busy} type="button" onClick={createDraw}>
-                  <ListChecks size={16} />
-                  생성
-                </button>
-              )}
-            </div>
-            {todayMatches.length ? todayMatches.map((match) => renderMatchCard(match, true)) : <p className="empty large">오늘 생성된 대진이 없습니다.</p>}
-          </div>
-        )}
-
         {tab === "results" && (
           <div className="screen">
             <div className="section-head">
@@ -2854,7 +2835,6 @@ export function Am5App() {
       <nav className="bottom-tabs">
         {[
           ["today", "오늘", Home],
-          ["draw", "대진표", ListChecks],
           ["results", "결과", ClipboardList],
           ["ranking", "랭킹", Trophy],
           ["me", "내 정보", User]
