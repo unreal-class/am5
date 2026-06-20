@@ -274,16 +274,27 @@ code {
   gap: 14px;
 }
 
+.today-focus-panel {
+  min-height: calc(100dvh - var(--tab-height) - 98px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 22px;
+}
+
+.today-focus-panel h1 {
+  max-width: 12em;
+}
+
 .today-title-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-.today-refresh-button {
-  min-height: 42px;
-  padding: 0 14px;
 }
 
 .profile-panel {
@@ -350,6 +361,10 @@ code {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.quick-actions.single {
+  grid-template-columns: 1fr;
 }
 
 .test-toolbar {

@@ -12,7 +12,6 @@ import {
   LogOut,
   Medal,
   Play,
-  RefreshCw,
   RotateCcw,
   Save,
   Shield,
@@ -25,7 +24,7 @@ import {
   Users
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loginIdToEmail, normalizeLoginId } from "@/lib/auth-id";
 import {
   currentMonthKey,
@@ -1101,6 +1100,7 @@ export function Am5App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
+  const pollingInFlightRef = useRef(false);
   const [newMemberDraft, setNewMemberDraft] = useState({
     displayName: "",
     phone: "",
@@ -1212,11 +1212,18 @@ export function Am5App() {
     () => todayMatches.find((match) => myMatchIds.has(match.id) && match.status === "scheduled") ?? null,
     [todayMatches, myMatchIds]
   );
-  const currentMatches = todayMatches.filter((match) => match.status === "in_progress");
-  const otherCurrentMatches = useMemo(
-    () => currentMatches.filter((match) => !myMatchIds.has(match.id)),
-    [currentMatches, myMatchIds]
+  const myResultPendingMatch = useMemo(
+    () =>
+      todayMatches.find(
+        (match) =>
+          myMatchIds.has(match.id) &&
+          Boolean(match.ended_at) &&
+          match.team_a_score === null &&
+          match.team_b_score === null
+      ) ?? null,
+    [todayMatches, myMatchIds]
   );
+  const myTodayMatch = myResultPendingMatch ?? myCurrentMatch ?? myNextMatch;
   const courtProgressRows = useMemo(
     () =>
       DEFAULT_COURTS.map((court) => {
@@ -1351,6 +1358,25 @@ export function Am5App() {
 
     return () => subscription.unsubscribe();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!session?.user || !profile || loading) return;
+
+    const poll = window.setInterval(async () => {
+      if (pollingInFlightRef.current) return;
+
+      pollingInFlightRef.current = true;
+      try {
+        await loadData();
+      } catch {
+        // Keep polling quiet so transient network errors do not interrupt play.
+      } finally {
+        pollingInFlightRef.current = false;
+      }
+    }, 2000);
+
+    return () => window.clearInterval(poll);
+  }, [loadData, loading, profile, session?.user]);
 
   useEffect(() => {
     const drafts = Object.fromEntries(
@@ -2022,64 +2048,40 @@ export function Am5App() {
       <section className="content">
         {tab === "today" && (
           <div className="screen">
-            <section className="hero-panel">
-              <div>
+            {!isPresent ? (
+              <section className="today-focus-panel">
                 <p className="eyebrow">{formatDate(today)}</p>
-                <div className="today-title-row">
-                  <h1>{todayMeeting ? "오늘 모임" : "모임 없음"}</h1>
-                  <button className="small-button primary today-refresh-button" disabled={busy} type="button" onClick={() => guarded(loadData, "업데이트했습니다.")}>
-                    <RefreshCw size={18} />
-                    업데이트
+                <h1>{profileDisplayName(profile)}님, 오늘도 즐겁게 시작해볼까요?</h1>
+                <p className="muted">참석을 누르면 오늘 모임 대기열에 들어가고 경기 배정이 시작됩니다.</p>
+                <button className="full-button primary" disabled={busy} type="button" onClick={checkIn}>
+                  <CheckCircle2 size={19} />
+                  참석하기
+                </button>
+              </section>
+            ) : myTodayMatch ? (
+              <>
+                <section className="hero-panel">
+                  <div>
+                    <p className="eyebrow">{formatDate(today)}</p>
+                    <h1>{myResultPendingMatch ? "결과를 기록해주세요" : myCurrentMatch ? "내 경기 진행 중" : "내 경기 배정 완료"}</h1>
+                  </div>
+                  <span className={classNames("attendance-badge", "active")}>출석 중</span>
+                </section>
+                {renderMatchCard(myTodayMatch)}
+              </>
+            ) : (
+              <section className="today-focus-panel">
+                <p className="eyebrow">{formatDate(today)}</p>
+                <h1>대기 중입니다</h1>
+                <p className="muted">다음 대진이 배정되면 이 화면에 바로 표시됩니다.</p>
+                <div className="quick-actions single">
+                  <button className="full-button danger" disabled={busy} type="button" onClick={() => checkOut()}>
+                    <DoorOpen size={19} />
+                    퇴장하기
                   </button>
                 </div>
-              </div>
-              <span className={classNames("attendance-badge", isPresent && "active")}>{isPresent ? "출석 중" : "미출석"}</span>
-            </section>
-
-            <div className="quick-actions">
-              <button className="full-button primary" disabled={isPresent || busy} type="button" onClick={checkIn}>
-                <CheckCircle2 size={19} />
-                출석하기
-              </button>
-              <button className="full-button danger" disabled={!isPresent || busy} type="button" onClick={() => checkOut()}>
-                <DoorOpen size={19} />
-                퇴장하기
-              </button>
-            </div>
-
-            <section className="summary-grid">
-              <div className="metric">
-                <span>오늘 출석</span>
-                <strong>{todayAttendances.filter((row) => !row.checked_out_at).length}</strong>
-              </div>
-              <div className="metric">
-                <span>진행 경기</span>
-                <strong>{currentMatches.length}</strong>
-              </div>
-              <div className="metric">
-                <span>내 승률</span>
-                <strong>{formatRate(myStatsAll?.winRate ?? 0)}</strong>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="section-head">
-                <h2>내 경기</h2>
-              </div>
-              {myCurrentMatch ? renderMatchCard(myCurrentMatch) : <p className="empty">진행 중인 내 경기가 없습니다.</p>}
-              {myNextMatch ? renderMatchCard(myNextMatch) : <p className="empty">예정된 내 경기가 없습니다.</p>}
-            </section>
-
-            <section className="panel">
-              <div className="section-head">
-                <h2>진행 중 다른 경기</h2>
-              </div>
-              {otherCurrentMatches.length ? (
-                otherCurrentMatches.map((match) => renderMatchCard(match, false))
-              ) : (
-                <p className="empty">진행 중인 다른 경기가 없습니다.</p>
-              )}
-            </section>
+              </section>
+            )}
           </div>
         )}
 
