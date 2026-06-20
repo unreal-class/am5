@@ -1,5 +1,6 @@
 import { memberTodayGameCount } from "@/lib/stats";
 import {
+  ADMIN_DISPLAY_NAME,
   DEFAULT_COURTS,
   type Attendance,
   type GeneratedMatch,
@@ -85,6 +86,10 @@ function isMixed(team: Candidate[]) {
 
 function teamAverage(team: Candidate[]) {
   return team.reduce((sum, player) => sum + player.winRate, 0) / team.length;
+}
+
+function isEligibleProfile(profile: Profile) {
+  return profile.display_name !== ADMIN_DISPLAY_NAME;
 }
 
 function scorePairing(
@@ -184,6 +189,7 @@ export function generateMatches({
   let candidates = eligibleMemberIds
     .map((memberId) => profileById.get(memberId))
     .filter((profile): profile is Profile => Boolean(profile))
+    .filter(isEligibleProfile)
     .map((profile) => {
       const stat = stats.get(profile.id);
       const winRate = stat && stat.games > 0 ? stat.winRate : profile.is_guest ? profile.seed_win_rate : 0;

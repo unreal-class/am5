@@ -37,6 +37,7 @@ import {
   todayKey
 } from "@/lib/date";
 import {
+  ADMIN_DISPLAY_NAME,
   DEFAULT_COURTS,
   DEFAULT_PASSWORD,
   courtName,
@@ -107,6 +108,14 @@ const scopeLabels: Record<RankingScope, string> = {
   month: "월간",
   year: "연간"
 };
+
+function isVisibleProfile(profile: Profile) {
+  return profile.display_name !== ADMIN_DISPLAY_NAME;
+}
+
+function profileDisplayName(profile: Profile) {
+  return isVisibleProfile(profile) ? profile.display_name : "운영 계정";
+}
 
 const TEST_COURTS = [1, 2, 3];
 const TEST_NAMES = [
@@ -1037,7 +1046,7 @@ function PasswordChangeScreen({
           <div className="brand-mark">AM5</div>
           <div>
             <h1>비밀번호 변경</h1>
-            <p className="muted">{profile.display_name}</p>
+            <p className="muted">{profileDisplayName(profile)}</p>
           </div>
         </div>
         <form className="stack-form" onSubmit={submit}>
@@ -1093,10 +1102,8 @@ export function Am5App() {
   const [toast, setToast] = useState("");
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
   const [newMemberDraft, setNewMemberDraft] = useState({
-    kind: "member" as "member" | "guest",
     displayName: "",
     phone: "",
-    loginId: "",
     gender: "male" as Gender,
     seedWinRate: 50
   });
@@ -1104,15 +1111,23 @@ export function Am5App() {
   const today = todayKey();
   const todayMeeting = useMemo(() => meetings.find((meeting) => meeting.meeting_date === today) ?? null, [meetings, today]);
   const profileById = useMemo(() => new Map(profiles.map((row) => [row.id, row])), [profiles]);
-  const regularProfiles = useMemo(() => profiles.filter((row) => !row.is_guest), [profiles]);
+  const visibleProfiles = useMemo(() => profiles.filter(isVisibleProfile), [profiles]);
+  const visibleProfileIds = useMemo(() => new Set(visibleProfiles.map((row) => row.id)), [visibleProfiles]);
+  const regularProfiles = useMemo(() => visibleProfiles.filter((row) => !row.is_guest), [visibleProfiles]);
 
   const todayAttendances = useMemo(
     () => attendances.filter((attendance) => attendance.meeting_id === todayMeeting?.id),
     [attendances, todayMeeting?.id]
   );
   const todayActiveAttendanceByMemberId = useMemo(
-    () => new Map(todayAttendances.filter((attendance) => !attendance.checked_out_at).map((attendance) => [attendance.member_id, attendance])),
-    [todayAttendances]
+    () =>
+      new Map(
+        todayAttendances
+          .filter((attendance) => visibleProfileIds.has(attendance.member_id))
+          .filter((attendance) => !attendance.checked_out_at)
+          .map((attendance) => [attendance.member_id, attendance])
+      ),
+    [todayAttendances, visibleProfileIds]
   );
   const todayLatestAttendanceByMemberId = useMemo(() => {
     const latest = new Map<string, Attendance>();
@@ -1141,15 +1156,15 @@ export function Am5App() {
   );
   const isPresent = Boolean(myAttendance && !myAttendance.checked_out_at);
 
-  const statsAll = useMemo(() => buildStats(profiles, meetings, matches, matchPlayers, "all"), [profiles, meetings, matches, matchPlayers]);
+  const statsAll = useMemo(() => buildStats(visibleProfiles, meetings, matches, matchPlayers, "all"), [visibleProfiles, meetings, matches, matchPlayers]);
   const myStatsAll = profile ? statsAll.get(profile.id) : null;
   const myStatsMonth = useMemo(
-    () => (profile ? buildStats(profiles, meetings, matches, matchPlayers, "month").get(profile.id) : null),
-    [profile, profiles, meetings, matches, matchPlayers]
+    () => (profile ? buildStats(visibleProfiles, meetings, matches, matchPlayers, "month").get(profile.id) : null),
+    [profile, visibleProfiles, meetings, matches, matchPlayers]
   );
   const myStatsYear = useMemo(
-    () => (profile ? buildStats(profiles, meetings, matches, matchPlayers, "year").get(profile.id) : null),
-    [profile, profiles, meetings, matches, matchPlayers]
+    () => (profile ? buildStats(visibleProfiles, meetings, matches, matchPlayers, "year").get(profile.id) : null),
+    [profile, visibleProfiles, meetings, matches, matchPlayers]
   );
   const rankingRows = useMemo(
     () => getRankings(regularProfiles, meetings, matches, matchPlayers, rankingScope),
@@ -1705,14 +1720,14 @@ export function Am5App() {
   }
 
   async function createMember() {
-    const isGuest = newMemberDraft.kind === "guest";
+    const isGuest = true;
     const displayName = newMemberDraft.displayName.trim();
-    const phone = newMemberDraft.phone.trim() || (isGuest ? "게스트" : "");
-    const loginId = normalizeLoginId(newMemberDraft.loginId || displayName);
+    const phone = newMemberDraft.phone.trim() || "게스트";
+    const loginId = normalizeLoginId(displayName);
     const seedWinRate = Number(newMemberDraft.seedWinRate);
 
-    if (!displayName || !phone || (!isGuest && !loginId)) {
-      showToast("이름, 전화번호, 로그인 아이디를 확인해주세요.");
+    if (!displayName || !phone) {
+      showToast("게스트 이름을 입력해주세요.");
       return;
     }
 
@@ -1721,7 +1736,7 @@ export function Am5App() {
       return;
     }
 
-    if (isGuest && !todayMeeting) {
+    if (!todayMeeting) {
       showToast("당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.");
       return;
     }
@@ -1742,22 +1757,16 @@ export function Am5App() {
       });
 
       setNewMemberDraft({
-        kind: "member",
         displayName: "",
         phone: "",
-        loginId: "",
         gender: "male",
         seedWinRate: 50
       });
       await loadData();
 
-      if (isGuest) {
-        showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.`);
-      } else {
-        showToast(`회원을 추가했습니다. 초기 비밀번호는 ${DEFAULT_PASSWORD} 입니다.`);
-      }
+      showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.`);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "회원 추가에 실패했습니다.");
+      showToast(error instanceof Error ? error.message : "게스트 추가에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -1850,6 +1859,7 @@ export function Am5App() {
 
   function names(ids: string[], includeTodayStats = false) {
     return ids
+      .filter((id) => visibleProfileIds.has(id))
       .map((id) => {
         const name = profileById.get(id)?.display_name ?? "알 수 없음";
         if (!includeTodayStats) return name;
@@ -1862,13 +1872,16 @@ export function Am5App() {
   }
 
   function teamAverageWinRate(ids: string[]) {
-    if (!ids.length) return 0;
-    const total = ids.reduce((sum, id) => sum + (statsAll.get(id)?.winRate ?? 0), 0);
-    return total / ids.length;
+    const visibleIds = ids.filter((id) => visibleProfileIds.has(id));
+    if (!visibleIds.length) return 0;
+    const total = visibleIds.reduce((sum, id) => sum + (statsAll.get(id)?.winRate ?? 0), 0);
+    return total / visibleIds.length;
   }
 
   function renderNamesWithStats(ids: string[]) {
-    return ids.map((id, index) => {
+    const visibleIds = ids.filter((id) => visibleProfileIds.has(id));
+
+    return visibleIds.map((id, index) => {
       const name = profileById.get(id)?.display_name ?? "알 수 없음";
       const todayGames = todayGameCountByMemberId.get(id) ?? 0;
       const winRate = statsAll.get(id)?.winRate ?? 0;
@@ -1879,7 +1892,7 @@ export function Am5App() {
           <small className="member-meta">
             {todayGames}경기 · {formatRate(winRate)}
           </small>
-          {index < ids.length - 1 && <span className="member-sep"> · </span>}
+          {index < visibleIds.length - 1 && <span className="member-sep"> · </span>}
         </span>
       );
     });
@@ -2233,9 +2246,9 @@ export function Am5App() {
         {tab === "me" && (
           <div className="screen">
             <section className="profile-panel">
-              <div className="avatar">{profile.display_name.slice(0, 1)}</div>
+              <div className="avatar">{profileDisplayName(profile).slice(0, 1)}</div>
               <div>
-                <h1>{profile.display_name}</h1>
+                <h1>{profileDisplayName(profile)}</h1>
                 <p className="muted">
                   {genderLabels[profile.gender]} · {roleLabels[profile.role]}
                 </p>
@@ -2311,10 +2324,10 @@ export function Am5App() {
             <section className="panel">
               <div className="section-head">
                 <h2>회원 출석/퇴장</h2>
-                <span className="count-chip">{todayAttendances.filter((row) => !row.checked_out_at).length}</span>
+                <span className="count-chip">{todayActiveAttendanceByMemberId.size}</span>
               </div>
               <div className="member-list">
-                {profiles.map((member) => {
+                {visibleProfiles.map((member) => {
                   const latestAttendance = todayLatestAttendanceByMemberId.get(member.id);
                   const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
 
@@ -2374,26 +2387,10 @@ export function Am5App() {
 
             <section className="panel">
               <div className="section-head">
-                <h2>회원 추가</h2>
-              </div>
-              <div className="segmented compact">
-                <button
-                  className={newMemberDraft.kind === "member" ? "active" : ""}
-                  type="button"
-                  onClick={() => setNewMemberDraft((draft) => ({ ...draft, kind: "member", seedWinRate: 50 }))}
-                >
-                  정회원
-                </button>
-                <button
-                  className={newMemberDraft.kind === "guest" ? "active" : ""}
-                  type="button"
-                  onClick={() => setNewMemberDraft((draft) => ({ ...draft, kind: "guest" }))}
-                >
-                  게스트
-                </button>
-                <button className="active" disabled type="button">
-                  {newMemberDraft.kind === "guest" ? (todayMeeting ? "당일 모임 확인됨" : "당일 모임 필요") : "일반 등록"}
-                </button>
+                <h2>게스트 추가</h2>
+                <span className={classNames("status-pill", todayMeeting && "in_progress")}>
+                  {todayMeeting ? "당일 모임 확인됨" : "당일 모임 필요"}
+                </span>
               </div>
               <div className="member-form">
                 <label>
@@ -2421,39 +2418,23 @@ export function Am5App() {
                     }
                   />
                 </label>
-                {newMemberDraft.kind === "member" ? (
-                  <label>
-                    로그인 아이디
-                    <input
-                      placeholder={newMemberDraft.displayName || "이름"}
-                      value={newMemberDraft.loginId}
-                      onChange={(event) =>
-                        setNewMemberDraft((draft) => ({
-                          ...draft,
-                          loginId: event.target.value
-                        }))
-                      }
-                    />
-                  </label>
-                ) : (
-                  <label>
-                    게스트 기준 승률 (%)
-                    <input
-                      inputMode="decimal"
-                      max={100}
-                      min={0}
-                      step={0.1}
-                      type="number"
-                      value={newMemberDraft.seedWinRate}
-                      onChange={(event) =>
-                        setNewMemberDraft((draft) => ({
-                          ...draft,
-                          seedWinRate: Number(event.target.value)
-                        }))
-                      }
-                    />
-                  </label>
-                )}
+                <label>
+                  게스트 기준 승률 (%)
+                  <input
+                    inputMode="decimal"
+                    max={100}
+                    min={0}
+                    step={0.1}
+                    type="number"
+                    value={newMemberDraft.seedWinRate}
+                    onChange={(event) =>
+                      setNewMemberDraft((draft) => ({
+                        ...draft,
+                        seedWinRate: Number(event.target.value)
+                      }))
+                    }
+                  />
+                </label>
                 <label>
                   성별
                   <select
@@ -2471,11 +2452,11 @@ export function Am5App() {
                   </select>
                 </label>
               </div>
-              <button className="full-button primary" disabled={busy || (newMemberDraft.kind === "guest" && !todayMeeting)} type="button" onClick={createMember}>
+              <button className="full-button primary" disabled={busy || !todayMeeting} type="button" onClick={createMember}>
                 <UserPlus size={18} />
-                {newMemberDraft.kind === "guest" ? "게스트 추가" : "회원 추가"}
+                게스트 추가
               </button>
-              {newMemberDraft.kind === "guest" && !todayMeeting && (
+              {!todayMeeting && (
                 <p className="helper-text">당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.</p>
               )}
             </section>

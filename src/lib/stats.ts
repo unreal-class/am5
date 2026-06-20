@@ -12,6 +12,7 @@ import type {
   RankingScope,
   Team
 } from "@/lib/models";
+import { ADMIN_DISPLAY_NAME } from "@/lib/models";
 
 function emptyStats(memberId: string): MemberStats {
   return {
@@ -49,6 +50,10 @@ function hasRecordedScore(match: Match) {
   return match.team_a_score !== null && match.team_b_score !== null;
 }
 
+function isRankedProfile(profile: Profile) {
+  return !profile.is_guest && profile.display_name !== ADMIN_DISPLAY_NAME;
+}
+
 export function buildStats(
   profiles: Profile[],
   meetings: Meeting[],
@@ -59,10 +64,10 @@ export function buildStats(
   const stats = new Map<string, MemberStats>();
   const meetingById = new Map(meetings.map((meeting) => [meeting.id, meeting]));
   const playersByMatch = new Map<string, MatchPlayer[]>();
-  const rankedMemberIds = new Set(profiles.filter((profile) => !profile.is_guest).map((profile) => profile.id));
+  const rankedMemberIds = new Set(profiles.filter(isRankedProfile).map((profile) => profile.id));
 
   profiles.forEach((profile) => {
-    if (!profile.is_guest) {
+    if (isRankedProfile(profile)) {
       stats.set(profile.id, emptyStats(profile.id));
     }
   });
@@ -113,7 +118,7 @@ export function getRankings(
   const stats = buildStats(profiles, meetings, matches, players, scope);
 
   return profiles
-    .filter((profile) => !profile.is_guest)
+    .filter(isRankedProfile)
     .map((profile) => ({
       ...(stats.get(profile.id) ?? emptyStats(profile.id)),
       rank: 0,
