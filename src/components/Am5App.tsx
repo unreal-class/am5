@@ -1484,7 +1484,21 @@ export function Am5App() {
         { onConflict: "court_number" }
       );
       if (error) throw error;
-    }, `코트 ${court.court_name} 대여를 시작했습니다.`);
+
+      if (!todayMeeting) {
+        showToast(`코트 ${court.court_name} 대여를 시작했습니다.`);
+        return;
+      }
+
+      const nextAvailableCourtNumbers = Array.from(new Set([...availableCourtNumbers, court.court_number]));
+      const generatedCount = await createMatchesForCourts(nextAvailableCourtNumbers, false);
+
+      showToast(
+        generatedCount > 0
+          ? `코트 ${court.court_name} 대여를 시작하고 대진 ${generatedCount}건을 생성했습니다.`
+          : `코트 ${court.court_name} 대여를 시작했습니다.`
+      );
+    });
   }
 
   async function endCourtRental(court: Court) {
@@ -1642,49 +1656,63 @@ export function Am5App() {
     }
   }
 
+  async function createMatchesForCourts(courtNumbers: number[], requireGenerated: boolean) {
+    if (!todayMeeting) return 0;
+
+    if (courtNumbers.length === 0) {
+      if (requireGenerated) {
+        throw new Error("현재 대여 시작된 가용 코트가 없습니다.");
+      }
+      return 0;
+    }
+
+    const generated = generateMatches({
+      meetingId: todayMeeting.id,
+      profiles,
+      attendances: todayAttendances,
+      matches,
+      players: matchPlayers,
+      stats: statsAll,
+      availableCourts: courtNumbers
+    });
+
+    if (generated.length === 0) {
+      if (requireGenerated) {
+        throw new Error("대진을 만들 수 있는 인원이 부족하거나 코트가 모두 사용 중입니다.");
+      }
+      return 0;
+    }
+
+    for (const generatedMatch of generated) {
+      const { data, error } = await supabase
+        .from("matches")
+        .insert({
+          meeting_id: todayMeeting.id,
+          court_number: generatedMatch.court_number,
+          round_number: generatedMatch.round_number,
+          status: "in_progress",
+          started_at: new Date().toISOString()
+        })
+        .select("id")
+        .single();
+
+      if (error || !data) throw error ?? new Error("경기 생성에 실패했습니다.");
+
+      const rows = [
+        ...generatedMatch.teamA.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "A" as Team })),
+        ...generatedMatch.teamB.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "B" as Team }))
+      ];
+      const { error: playerError } = await supabase.from("match_players").insert(rows);
+      if (playerError) throw playerError;
+    }
+
+    return generated.length;
+  }
+
   async function createDraw() {
     if (!todayMeeting) return;
     await guarded(async () => {
-      if (availableCourtNumbers.length === 0) {
-        throw new Error("현재 대여 시작된 가용 코트가 없습니다.");
-      }
-
-      const generated = generateMatches({
-        meetingId: todayMeeting.id,
-        profiles,
-        attendances: todayAttendances,
-        matches,
-        players: matchPlayers,
-        stats: statsAll,
-        availableCourts: availableCourtNumbers
-      });
-
-      if (generated.length === 0) {
-        throw new Error("대진을 만들 수 있는 인원이 부족하거나 코트가 모두 사용 중입니다.");
-      }
-
-      for (const generatedMatch of generated) {
-        const { data, error } = await supabase
-          .from("matches")
-          .insert({
-            meeting_id: todayMeeting.id,
-            court_number: generatedMatch.court_number,
-            round_number: generatedMatch.round_number,
-            status: "in_progress",
-            started_at: new Date().toISOString()
-          })
-          .select("id")
-          .single();
-
-        if (error || !data) throw error ?? new Error("경기 생성에 실패했습니다.");
-
-        const rows = [
-          ...generatedMatch.teamA.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "A" as Team })),
-          ...generatedMatch.teamB.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "B" as Team }))
-        ];
-        const { error: playerError } = await supabase.from("match_players").insert(rows);
-        if (playerError) throw playerError;
-      }
+      await createMatchesForCourts(availableCourtNumbers, true);
     }, "대진표를 생성했습니다.");
   }
 
