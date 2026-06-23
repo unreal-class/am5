@@ -732,7 +732,7 @@ function CourtManagement({
           <article className={classNames("court-card", court.is_available && "available")} key={court.court_number}>
             <div className="match-head">
               <div>
-                <p className="eyebrow">코트 {court.court_name}</p>
+                <p className="eyebrow">코트 {courtName(court.court_number)}</p>
                 <h2>{court.is_available ? "가용 중" : "사용 불가"}</h2>
               </div>
               <span className={classNames("status-pill", court.is_available ? "finished" : "scheduled")}>
@@ -1511,7 +1511,7 @@ export function Am5App() {
       const { error } = await supabase.from("courts").upsert(
         {
           court_number: court.court_number,
-          court_name: court.court_name,
+          court_name: courtName(court.court_number),
           is_available: true,
           rental_started_at: new Date().toISOString(),
           rental_ended_at: null
@@ -1521,7 +1521,7 @@ export function Am5App() {
       if (error) throw error;
 
       if (!todayMeeting) {
-        showToast(`코트 ${court.court_name} 대여를 시작했습니다.`);
+        showToast(`코트 ${courtName(court.court_number)} 대여를 시작했습니다.`);
         return;
       }
 
@@ -1530,8 +1530,8 @@ export function Am5App() {
 
       showToast(
         generatedCount > 0
-          ? `코트 ${court.court_name} 대여를 시작하고 대진 ${generatedCount}건을 생성했습니다.`
-          : `코트 ${court.court_name} 대여를 시작했습니다.`
+          ? `코트 ${courtName(court.court_number)} 대여를 시작하고 대진 ${generatedCount}건을 생성했습니다.`
+          : `코트 ${courtName(court.court_number)} 대여를 시작했습니다.`
       );
     });
   }
@@ -1546,7 +1546,7 @@ export function Am5App() {
         })
         .eq("court_number", court.court_number);
       if (error) throw error;
-    }, `코트 ${court.court_name} 대여를 종료했습니다.`);
+    }, `코트 ${courtName(court.court_number)} 대여를 종료했습니다.`);
   }
 
   async function checkIn() {

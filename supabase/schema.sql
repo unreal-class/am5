@@ -41,7 +41,7 @@ alter table public.attendances drop constraint if exists attendances_meeting_id_
 
 create table if not exists public.courts (
   court_number integer primary key check (court_number between 1 and 3),
-  court_name text not null unique check (court_name in ('A', 'B', 'C')),
+  court_name text not null unique check (court_name in ('1', '2', '3')),
   is_available boolean not null default false,
   rental_started_at timestamptz,
   rental_ended_at timestamptz,
@@ -50,9 +50,9 @@ create table if not exists public.courts (
 
 insert into public.courts (court_number, court_name, is_available)
 values
-  (1, 'A', false),
-  (2, 'B', false),
-  (3, 'C', false)
+  (1, '1', false),
+  (2, '2', false),
+  (3, '3', false)
 on conflict (court_number) do update
 set court_name = excluded.court_name;
 

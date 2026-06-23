@@ -4,15 +4,15 @@ export type MeetingStatus = "active" | "closed";
 export type MatchStatus = "scheduled" | "in_progress" | "finished";
 export type Team = "A" | "B";
 export type RankingScope = "all" | "month" | "year";
-export type CourtName = "A" | "B" | "C";
+export type CourtName = "1" | "2" | "3";
 
 export const DEFAULT_PASSWORD = "AM5AM5";
 export const ADMIN_LOGIN_ID = "admin";
 export const ADMIN_DISPLAY_NAME = "관리자";
 export const DEFAULT_COURTS = [
-  { court_number: 1, court_name: "A" },
-  { court_number: 2, court_name: "B" },
-  { court_number: 3, court_name: "C" }
+  { court_number: 1, court_name: "1" },
+  { court_number: 2, court_name: "2" },
+  { court_number: 3, court_name: "3" }
 ] as const;
 
 export function courtName(courtNumber: number) {
