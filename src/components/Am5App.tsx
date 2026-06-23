@@ -1751,6 +1751,7 @@ export function Am5App() {
   }
 
   async function finishMatch(match: Match) {
+    if (!confirm("정말 경기를 종료하시겠습니까?\n\n종료 후 반드시 경기 결과를 입력해야 합니다.")) return;
     await guarded(async () => {
       await memberFetch("/api/member/matches/finish", {
         method: "POST",
@@ -2048,8 +2049,8 @@ export function Am5App() {
         {canManageMatch && (
           <>
             <div className="match-actions">
-              <button className="small-button" disabled={busy || !canFinishMatch} type="button" onClick={() => finishMatch(match)}>
-                <StopCircle size={16} />
+              <button className="full-button danger" disabled={busy || !canFinishMatch} type="button" onClick={() => finishMatch(match)}>
+                <StopCircle size={18} />
                 종료
               </button>
             </div>
@@ -2762,8 +2763,8 @@ export function Am5App() {
                             <span>종료 {formatTime(match.ended_at)}</span>
                           </div>
                           <div className="match-actions">
-                            <button className="small-button" disabled={busy || !canFinish} type="button" onClick={() => finishMatch(match)}>
-                              <StopCircle size={16} />
+                            <button className="full-button danger" disabled={busy || !canFinish} type="button" onClick={() => finishMatch(match)}>
+                              <StopCircle size={18} />
                               종료
                             </button>
                           </div>

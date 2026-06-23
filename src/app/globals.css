@@ -480,7 +480,8 @@ code {
 }
 
 .danger,
-.icon-button.danger {
+.icon-button.danger,
+.full-button.danger {
   border-color: #f0cfcb;
   background: #fff5f3;
   color: var(--danger);
@@ -629,6 +630,10 @@ code {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.match-actions > .full-button {
+  grid-column: 1 / -1;
 }
 
 .match-notice {
