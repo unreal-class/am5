@@ -1111,6 +1111,7 @@ export function Am5App() {
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
+    confirmLabel: string;
     onConfirm: () => Promise<void>;
   } | null>(null);
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
@@ -1629,6 +1630,7 @@ export function Am5App() {
     setConfirmDialog({
       title: "정말 퇴장하시겠습니까?",
       message: "",
+      confirmLabel: "확인",
       onConfirm: async () => {
         setBusy(true);
         try {
@@ -1766,6 +1768,7 @@ export function Am5App() {
     setConfirmDialog({
       title: "정말 경기를 종료하시겠습니까?",
       message: "종료 후 반드시 경기 결과를 입력해야 합니다.",
+      confirmLabel: "종료",
       onConfirm: async () => {
         await guarded(async () => {
           await memberFetch("/api/member/matches/finish", {
@@ -1890,22 +1893,48 @@ export function Am5App() {
       return;
     }
 
-    await guarded(async () => {
-      const body = await adminFetch(`/api/admin/members/${member.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ role })
+    if (role === "admin") {
+      setConfirmDialog({
+        title: `${member.display_name}님에게 관리자 권한을 부여하시겠습니까?`,
+        message: "",
+        confirmLabel: "확인",
+        onConfirm: async () => {
+          await guarded(async () => {
+            const body = await adminFetch(`/api/admin/members/${member.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ role })
+            });
+            if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
+          }, `${member.display_name}님에게 관리자 권한을 부여했습니다.`);
+        }
       });
-      if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
-    }, role === "admin" ? `${member.display_name}님에게 관리자 권한을 부여했습니다.` : `${member.display_name}님의 관리자 권한을 삭제했습니다.`);
+    } else {
+      await guarded(async () => {
+        const body = await adminFetch(`/api/admin/members/${member.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role })
+        });
+        if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
+      }, `${member.display_name}님의 관리자 권한을 삭제했습니다.`);
+    }
   }
 
   async function resetPassword(memberId: string) {
-    await guarded(async () => {
-      await adminFetch("/api/admin/reset-password", {
-        method: "POST",
-        body: JSON.stringify({ memberId })
-      });
-    }, `비밀번호를 ${DEFAULT_PASSWORD}로 초기화했습니다.`);
+    const member = profiles.find((p) => p.id === memberId);
+    if (!member) return;
+    setConfirmDialog({
+      title: `${member.display_name}님의 비밀번호를 초기화하시겠습니까?`,
+      message: `비밀번호가 ${DEFAULT_PASSWORD}로 초기화됩니다.`,
+      confirmLabel: "확인",
+      onConfirm: async () => {
+        await guarded(async () => {
+          await adminFetch("/api/admin/reset-password", {
+            method: "POST",
+            body: JSON.stringify({ memberId })
+          });
+        }, `비밀번호를 ${DEFAULT_PASSWORD}로 초기화했습니다.`);
+      }
+    });
   }
 
   async function deleteMember(memberId: string) {
@@ -1914,11 +1943,18 @@ export function Am5App() {
       return;
     }
 
-    if (!window.confirm("회원 계정을 삭제할까요?")) return;
-
-    await guarded(async () => {
-      await adminFetch(`/api/admin/members/${memberId}`, { method: "DELETE" });
-    }, "회원을 삭제했습니다.");
+    const member = profiles.find((p) => p.id === memberId);
+    if (!member) return;
+    setConfirmDialog({
+      title: `${member.display_name} 회원을 삭제하시겠습니까?`,
+      message: "삭제된 계정은 복구할 수 없습니다.",
+      confirmLabel: "확인",
+      onConfirm: async () => {
+        await guarded(async () => {
+          await adminFetch(`/api/admin/members/${memberId}`, { method: "DELETE" });
+        }, "회원을 삭제했습니다.");
+      }
+    });
   }
 
   async function deleteMatchRecord(match: Match) {
@@ -1960,6 +1996,7 @@ export function Am5App() {
     setConfirmDialog({
       title: "정말 로그아웃하시겠습니까?",
       message: "",
+      confirmLabel: "확인",
       onConfirm: async () => {
         await supabase.auth.signOut();
         setSession(null);
@@ -2923,7 +2960,7 @@ export function Am5App() {
                 const onConfirm = confirmDialog.onConfirm;
                 setConfirmDialog(null);
                 await onConfirm();
-              }}>{confirmDialog.message ? "종료" : "확인"}</button>
+              }}>{confirmDialog.confirmLabel}</button>
             </div>
           </div>
         </div>
