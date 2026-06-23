@@ -1621,6 +1621,8 @@ export function Am5App() {
       return;
     }
 
+    if (!confirm("정말 퇴장하시겠습니까?")) return;
+
     setBusy(true);
     try {
       const body = await memberFetch("/api/member/check-out", {
@@ -1940,6 +1942,7 @@ export function Am5App() {
   }
 
   async function signOut() {
+    if (!confirm("정말 로그아웃하시겠습니까?")) return;
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
@@ -2257,9 +2260,6 @@ export function Am5App() {
               </button>
             </>
           )}
-          <button className="icon-button" title="로그아웃" type="button" onClick={signOut}>
-            <LogOut size={19} />
-          </button>
         </div>
       </header>
 
@@ -2509,6 +2509,10 @@ export function Am5App() {
             <button className="full-button" type="button" onClick={() => setProfile({ ...profile, must_change_password: true })}>
               <KeyRound size={18} />
               비밀번호 변경
+            </button>
+            <button className="full-button" type="button" onClick={signOut}>
+              <LogOut size={18} />
+              로그아웃
             </button>
           </div>
         )}
