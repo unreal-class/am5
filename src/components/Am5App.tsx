@@ -1108,6 +1108,7 @@ export function Am5App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
+  const [finishConfirmMatch, setFinishConfirmMatch] = useState<Match | null>(null);
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
   const pollingInFlightRef = useRef(false);
   const [newMemberDraft, setNewMemberDraft] = useState({
@@ -1754,7 +1755,10 @@ export function Am5App() {
   }
 
   async function finishMatch(match: Match) {
-    if (!confirm("정말 경기를 종료하시겠습니까?\n\n종료 후 반드시 경기 결과를 입력해야 합니다.")) return;
+    setFinishConfirmMatch(match);
+  }
+
+  async function confirmFinishMatch(match: Match) {
     await guarded(async () => {
       await memberFetch("/api/member/matches/finish", {
         method: "POST",
@@ -2289,11 +2293,6 @@ export function Am5App() {
                   </div>
                   <span className={classNames("attendance-badge", "active")}>출석 중</span>
                 </section>
-                {!myResultPendingMatch && (
-                  <p className="match-notice">
-                    경기 종료 시 선수들 중 한 명은 반드시 종료 버튼을 누르고, 경기 결과를 입력해야 합니다.
-                  </p>
-                )}
                 {renderMatchCard(myTodayMatch)}
               </>
             ) : (
@@ -2898,6 +2897,18 @@ export function Am5App() {
         })}
       </nav>
 
+      {finishConfirmMatch && (
+        <div className="dialog-overlay" onClick={() => setFinishConfirmMatch(null)}>
+          <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
+            <h2>정말 경기를 종료하시겠습니까?</h2>
+            <p>종료 후 반드시 경기 결과를 입력해야 합니다.</p>
+            <div className="dialog-actions">
+              <button className="full-button" type="button" onClick={() => setFinishConfirmMatch(null)}>취소</button>
+              <button className="full-button danger" type="button" disabled={busy} onClick={async () => { setFinishConfirmMatch(null); await confirmFinishMatch(finishConfirmMatch); }}>종료</button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );
