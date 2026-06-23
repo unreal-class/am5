@@ -48,6 +48,9 @@ create table if not exists public.courts (
   updated_at timestamptz not null default now()
 );
 
+alter table public.courts drop constraint if exists courts_court_name_check;
+alter table public.courts add constraint courts_court_name_check check (court_name in ('1', '2', '3'));
+
 insert into public.courts (court_number, court_name, is_available)
 values
   (1, '1', false),
@@ -55,9 +58,6 @@ values
   (3, '3', false)
 on conflict (court_number) do update
 set court_name = excluded.court_name;
-
-alter table public.courts drop constraint if exists courts_court_name_check;
-alter table public.courts add constraint courts_court_name_check check (court_name in ('1', '2', '3'));
 
 create table if not exists public.matches (
   id uuid primary key default gen_random_uuid(),
