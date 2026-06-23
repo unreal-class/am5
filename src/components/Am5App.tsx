@@ -1669,6 +1669,30 @@ export function Am5App() {
       return;
     }
 
+    if (action === "check-out") {
+      setConfirmDialog({
+        title: `${member.display_name}님을 퇴장시키시겠습니까?`,
+        message: "",
+        confirmLabel: "확인",
+        onConfirm: async () => {
+          setBusy(true);
+          try {
+            const body = await adminFetch(`/api/admin/members/${member.id}/attendance`, {
+              method: "POST",
+              body: JSON.stringify({ action, meetingDate: today })
+            });
+            await loadData();
+            showToast(checkoutToastMessage(`${member.display_name}님을 퇴장 처리했습니다.`, body));
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : "퇴장 처리에 실패했습니다.");
+          } finally {
+            setBusy(false);
+          }
+        }
+      });
+      return;
+    }
+
     setBusy(true);
     try {
       const body = await adminFetch(`/api/admin/members/${member.id}/attendance`, {
@@ -1676,11 +1700,6 @@ export function Am5App() {
         body: JSON.stringify({ action, meetingDate: today })
       });
       await loadData();
-
-      if (action === "check-out") {
-        showToast(checkoutToastMessage(`${member.display_name}님을 퇴장 처리했습니다.`, body));
-        return;
-      }
 
       const assignedMatches = (body.assignedMatches ?? []) as Array<{
         courtName: string;
