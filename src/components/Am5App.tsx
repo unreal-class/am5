@@ -1462,7 +1462,8 @@ export function Am5App() {
       await loadData();
       if (success) showToast(success);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "처리에 실패했습니다.");
+      const message = error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error ? String((error as Record<string, unknown>).message) : "처리에 실패했습니다.";
+      showToast(message);
     } finally {
       setBusy(false);
     }
@@ -1517,7 +1518,6 @@ export function Am5App() {
       const { error } = await supabase.from("courts").upsert(
         {
           court_number: court.court_number,
-          court_name: courtName(court.court_number),
           is_available: true,
           rental_started_at: new Date().toISOString(),
           rental_ended_at: null
