@@ -543,10 +543,47 @@ code {
   font-weight: 900;
 }
 
-.team-row strong {
+.team-row strong,
+.team-row .team-name {
   min-width: 0;
   overflow-wrap: anywhere;
   line-height: 1.35;
+}
+
+.match-card .court-name {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: var(--primary-dark);
+}
+
+.match-card .team-name {
+  font-size: 1.55rem;
+  font-weight: 700;
+}
+
+.team-vs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.team-vs .team-label {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--primary-dark);
+  font-weight: 900;
+  flex: 0 0 auto;
+}
+
+.team-vs .vs {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.92rem;
 }
 
 .team-avg {

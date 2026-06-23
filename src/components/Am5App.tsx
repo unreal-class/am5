@@ -576,15 +576,12 @@ function TestConsole({ showToast }: { showToast: (message: string) => void }) {
 
               {match ? (
                 <>
-                  <div className="teams">
-                    <div className="team-row">
-                      <span>A</span>
-                      <strong>{names(match.teamA)}</strong>
-                    </div>
-                    <div className="team-row">
-                      <span>B</span>
-                      <strong>{names(match.teamB)}</strong>
-                    </div>
+                  <div className="team-vs">
+                    <span className="team-label">A</span>
+                    <strong className="team-name">{names(match.teamA)}</strong>
+                    <span className="vs">vs</span>
+                    <strong className="team-name">{names(match.teamB)}</strong>
+                    <span className="team-label">B</span>
                   </div>
 
                   <div className="match-meta">
@@ -2012,24 +2009,26 @@ export function Am5App() {
       <article className={classNames("match-card", mine && "mine")} key={match.id}>
         <div className="match-head">
           <div>
-            <span className="eyebrow">코트 {courtName(match.court_number)}</span>
+            <span className="court-name">코트 {courtName(match.court_number)}</span>
             <h3>{matchDisplayStatus(match)}</h3>
           </div>
           <span className={classNames("status-pill", matchStatusClass(match))}>{matchDisplayStatus(match)}</span>
         </div>
 
-        <div className="teams">
-          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
-            <span>A</span>
-            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamAAvg)}</small>}
-            <strong>{includeTodayStats ? renderNamesWithStats(teamA) : names(teamA)}</strong>
-          </div>
-          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
-            <span>B</span>
-            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamBAvg)}</small>}
-            <strong>{includeTodayStats ? renderNamesWithStats(teamB) : names(teamB)}</strong>
-          </div>
+        <div className="team-vs">
+          <span className="team-label">A</span>
+          <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamA) : names(teamA)}</strong>
+          <span className="vs">vs</span>
+          <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamB) : names(teamB)}</strong>
+          <span className="team-label">B</span>
         </div>
+        {includeTodayStats && (
+          <div className="team-avg">
+            <small>A평균 {formatRate(teamAAvg)}</small>
+            <small> · </small>
+            <small>B평균 {formatRate(teamBAvg)}</small>
+          </div>
+        )}
 
         <div className="match-meta">
           <span>시작 {formatTime(match.started_at)}</span>
@@ -2358,7 +2357,7 @@ export function Am5App() {
                       <article className="match-card" key={match.id}>
                         <div className="match-head">
                           <div>
-                            <span className="eyebrow">코트 {courtName(match.court_number)}</span>
+                            <span className="court-name">코트 {courtName(match.court_number)}</span>
                             <h3>라운드 {match.round_number}</h3>
                           </div>
                           <div className="match-head-actions">
@@ -2377,15 +2376,12 @@ export function Am5App() {
                           </div>
                         </div>
 
-                        <div className="teams">
-                          <div className="team-row">
-                            <span>A</span>
-                            <strong>{names(teamA)}</strong>
-                          </div>
-                          <div className="team-row">
-                            <span>B</span>
-                            <strong>{names(teamB)}</strong>
-                          </div>
+                        <div className="team-vs">
+                          <span className="team-label">A</span>
+                          <strong className="team-name">{names(teamA)}</strong>
+                          <span className="vs">vs</span>
+                          <strong className="team-name">{names(teamB)}</strong>
+                          <span className="team-label">B</span>
                         </div>
 
                         <div className="score-line">
@@ -2738,7 +2734,7 @@ export function Am5App() {
                     <article className="test-court-card" key={row.courtNumber}>
                       <div className="match-head">
                         <div>
-                          <p className="eyebrow">코트 {courtName(row.courtNumber)}</p>
+                          <p className="court-name">코트 {courtName(row.courtNumber)}</p>
                           <h3>{match ? "진행 중" : "배정 없음"}</h3>
                         </div>
                         <span className={classNames("status-pill", match ? matchStatusClass(match) : undefined)}>{match ? matchDisplayStatus(match) : "비어 있음"}</span>
@@ -2753,15 +2749,12 @@ export function Am5App() {
 
                       {match ? (
                         <>
-                          <div className="teams">
-                            <div className="team-row">
-                              <span>A</span>
-                              <strong>{names(teamA)}</strong>
-                            </div>
-                            <div className="team-row">
-                              <span>B</span>
-                              <strong>{names(teamB)}</strong>
-                            </div>
+                          <div className="team-vs">
+                            <span className="team-label">A</span>
+                            <strong className="team-name">{names(teamA)}</strong>
+                            <span className="vs">vs</span>
+                            <strong className="team-name">{names(teamB)}</strong>
+                            <span className="team-label">B</span>
                           </div>
                           <div className="match-meta">
                             <span>라운드 {match.round_number}</span>
@@ -2833,15 +2826,12 @@ export function Am5App() {
                           </div>
                         </div>
 
-                        <div className="teams">
-                          <div className="team-row">
-                            <span>A</span>
-                            <strong>{names(teamA)}</strong>
-                          </div>
-                          <div className="team-row">
-                            <span>B</span>
-                            <strong>{names(teamB)}</strong>
-                          </div>
+                        <div className="team-vs">
+                          <span className="team-label">A</span>
+                          <strong className="team-name">{names(teamA)}</strong>
+                          <span className="vs">vs</span>
+                          <strong className="team-name">{names(teamB)}</strong>
+                          <span className="team-label">B</span>
                         </div>
 
                         <div className="score-line">
