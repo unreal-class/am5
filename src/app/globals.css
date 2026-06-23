@@ -523,53 +523,22 @@ code {
 }
 
 .team-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--surface-strong);
+}
+
+.team-row.with-stats {
   display: grid;
-  grid-template-columns: 32px 1fr;
+  grid-template-columns: 32px auto 1fr;
   align-items: center;
   gap: 10px;
 }
 
-.team-row.with-stats {
-  grid-template-columns: 32px auto 1fr;
-}
-
-.team-row > span {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--surface-strong);
-  color: var(--primary-dark);
-  font-weight: 900;
-}
-
-.team-row strong,
-.team-row .team-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-}
-
-.match-card .court-name {
-  font-size: 1.55rem;
-  font-weight: 900;
-  color: var(--primary-dark);
-}
-
-.match-card .team-name {
-  font-size: 1.55rem;
-  font-weight: 700;
-}
-
-.team-vs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.team-vs .team-label {
+.team-row .team-label {
   width: 32px;
   height: 32px;
   display: grid;
@@ -581,10 +550,23 @@ code {
   flex: 0 0 auto;
 }
 
-.team-vs .vs {
-  color: var(--muted);
+.team-row .team-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.match-card .court-name {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: var(--primary-dark);
+}
+
+.match-card .team-name {
+  font-size: 2rem;
   font-weight: 700;
-  font-size: 0.92rem;
 }
 
 .team-avg {

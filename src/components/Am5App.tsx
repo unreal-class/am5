@@ -576,12 +576,15 @@ function TestConsole({ showToast }: { showToast: (message: string) => void }) {
 
               {match ? (
                 <>
-                  <div className="team-vs">
-                    <span className="team-label">A</span>
-                    <strong className="team-name">{names(match.teamA)}</strong>
-                    <span className="vs">vs</span>
-                    <strong className="team-name">{names(match.teamB)}</strong>
-                    <span className="team-label">B</span>
+                  <div className="teams">
+                    <div className="team-row">
+                      <span className="team-label">A</span>
+                      <strong className="team-name">{names(match.teamA)}</strong>
+                    </div>
+                    <div className="team-row">
+                      <span className="team-label">B</span>
+                      <strong className="team-name">{names(match.teamB)}</strong>
+                    </div>
                   </div>
 
                   <div className="match-meta">
@@ -2016,20 +2019,18 @@ export function Am5App() {
           <span className={classNames("status-pill", matchStatusClass(match))}>{matchDisplayStatus(match)}</span>
         </div>
 
-        <div className="team-vs">
-          <span className="team-label">A</span>
-          <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamA) : names(teamA)}</strong>
-          <span className="vs">vs</span>
-          <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamB) : names(teamB)}</strong>
-          <span className="team-label">B</span>
-        </div>
-        {includeTodayStats && (
-          <div className="team-avg">
-            <small>A평균 {formatRate(teamAAvg)}</small>
-            <small> · </small>
-            <small>B평균 {formatRate(teamBAvg)}</small>
+        <div className="teams">
+          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
+            <span className="team-label">A</span>
+            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamAAvg)}</small>}
+            <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamA) : names(teamA)}</strong>
           </div>
-        )}
+          <div className={classNames("team-row", includeTodayStats && "with-stats")}>
+            <span className="team-label">B</span>
+            {includeTodayStats && <small className="team-avg">평균 {formatRate(teamBAvg)}</small>}
+            <strong className="team-name">{includeTodayStats ? renderNamesWithStats(teamB) : names(teamB)}</strong>
+          </div>
+        </div>
 
         <div className="match-meta">
           <span>시작 {formatTime(match.started_at)}</span>
@@ -2377,12 +2378,15 @@ export function Am5App() {
                           </div>
                         </div>
 
-                        <div className="team-vs">
-                          <span className="team-label">A</span>
-                          <strong className="team-name">{names(teamA)}</strong>
-                          <span className="vs">vs</span>
-                          <strong className="team-name">{names(teamB)}</strong>
-                          <span className="team-label">B</span>
+                        <div className="teams">
+                          <div className="team-row">
+                            <span className="team-label">A</span>
+                            <strong className="team-name">{names(teamA)}</strong>
+                          </div>
+                          <div className="team-row">
+                            <span className="team-label">B</span>
+                            <strong className="team-name">{names(teamB)}</strong>
+                          </div>
                         </div>
 
                         <div className="score-line">
@@ -2750,12 +2754,15 @@ export function Am5App() {
 
                       {match ? (
                         <>
-                          <div className="team-vs">
-                            <span className="team-label">A</span>
-                            <strong className="team-name">{names(teamA)}</strong>
-                            <span className="vs">vs</span>
-                            <strong className="team-name">{names(teamB)}</strong>
-                            <span className="team-label">B</span>
+                          <div className="teams">
+                            <div className="team-row">
+                              <span className="team-label">A</span>
+                              <strong className="team-name">{names(teamA)}</strong>
+                            </div>
+                            <div className="team-row">
+                              <span className="team-label">B</span>
+                              <strong className="team-name">{names(teamB)}</strong>
+                            </div>
                           </div>
                           <div className="match-meta">
                             <span>라운드 {match.round_number}</span>
@@ -2827,12 +2834,15 @@ export function Am5App() {
                           </div>
                         </div>
 
-                        <div className="team-vs">
-                          <span className="team-label">A</span>
-                          <strong className="team-name">{names(teamA)}</strong>
-                          <span className="vs">vs</span>
-                          <strong className="team-name">{names(teamB)}</strong>
-                          <span className="team-label">B</span>
+                        <div className="teams">
+                          <div className="team-row">
+                            <span className="team-label">A</span>
+                            <strong className="team-name">{names(teamA)}</strong>
+                          </div>
+                          <div className="team-row">
+                            <span className="team-label">B</span>
+                            <strong className="team-name">{names(teamB)}</strong>
+                          </div>
                         </div>
 
                         <div className="score-line">
