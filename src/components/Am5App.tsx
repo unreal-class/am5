@@ -1288,6 +1288,40 @@ export function Am5App() {
     () => courts.filter((court) => court.is_available).map((court) => court.court_number),
     [courts]
   );
+  const activeMatchMemberIds = useMemo(() => {
+    const activeMatchIds = new Set(
+      todayMatches
+        .filter((match) => match.status === "scheduled" || match.status === "in_progress")
+        .map((match) => match.id)
+    );
+    return new Set(
+      matchPlayers
+        .filter((player) => activeMatchIds.has(player.match_id))
+        .map((player) => player.member_id)
+    );
+  }, [todayMatches, matchPlayers]);
+  const waitingPresentCount = useMemo(() => {
+    let count = 0;
+    for (const memberId of todayActiveAttendanceByMemberId.keys()) {
+      const p = profileById.get(memberId);
+      if (!p || p.display_name === ADMIN_DISPLAY_NAME) continue;
+      if (activeMatchMemberIds.has(memberId)) continue;
+      count++;
+    }
+    return count;
+  }, [todayActiveAttendanceByMemberId, profileById, activeMatchMemberIds]);
+  const occupiedCourtNumbers = useMemo(
+    () => new Set(
+      todayMatches
+        .filter((match) => match.status === "scheduled" || match.status === "in_progress")
+        .map((match) => match.court_number)
+    ),
+    [todayMatches]
+  );
+  const availableCourtsNowCount = useMemo(
+    () => availableCourtNumbers.filter((num) => !occupiedCourtNumbers.has(num)).length,
+    [availableCourtNumbers, occupiedCourtNumbers]
+  );
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -2236,7 +2270,7 @@ export function Am5App() {
               <section className="today-focus-panel">
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>{profileDisplayName(profile)}님, 오늘도 즐겁게 시작해볼까요?</h1>
-                <p className="muted">참석을 누르면 오늘 모임 대기열에 들어가고 경기 배정이 시작됩니다.</p>
+                <p className="desc">참석을 누르면 오늘 모임 대기열에 들어가고 경기 배정이 시작됩니다.</p>
                 <button className="full-button primary" disabled={busy} type="button" onClick={checkIn}>
                   <CheckCircle2 size={19} />
                   참석하기
@@ -2262,7 +2296,12 @@ export function Am5App() {
               <section className="today-focus-panel">
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>대기 중입니다</h1>
-                <p className="muted">다음 대진이 배정되면 이 화면에 바로 표시됩니다.</p>
+                {waitingPresentCount < 4 ? (
+                  <h2>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다</h2>
+                ) : availableCourtsNowCount === 0 ? (
+                  <h2>모든 코트에서 경기 중입니다</h2>
+                ) : null}
+                <p className="muted">대기 인원 {waitingPresentCount}명 | 가용 코트 {availableCourtsNowCount}면</p>
                 <div className="quick-actions single">
                   <button className="full-button danger" disabled={busy} type="button" onClick={() => checkOut()}>
                     <DoorOpen size={19} />
