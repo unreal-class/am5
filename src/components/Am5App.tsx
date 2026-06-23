@@ -1518,6 +1518,7 @@ export function Am5App() {
       const { error } = await supabase.from("courts").upsert(
         {
           court_number: court.court_number,
+          court_name: courtName(court.court_number),
           is_available: true,
           rental_started_at: new Date().toISOString(),
           rental_ended_at: null
