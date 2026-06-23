@@ -297,16 +297,9 @@ code {
   max-width: 12em;
 }
 
-.today-focus-panel .desc {
-  font-size: 1.84rem;
-  line-height: 1.4;
-}
-
-.today-focus-panel h2 {
-  font-size: 1.24rem;
-  font-weight: 700;
+.today-focus-panel h1.guide {
+  font-weight: 400;
   color: var(--muted);
-  margin: 0;
 }
 
 .today-title-row {

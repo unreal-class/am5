@@ -1108,7 +1108,11 @@ export function Am5App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
-  const [finishConfirmMatch, setFinishConfirmMatch] = useState<Match | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => Promise<void>;
+  } | null>(null);
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
   const pollingInFlightRef = useRef(false);
   const [newMemberDraft, setNewMemberDraft] = useState({
@@ -1622,21 +1626,25 @@ export function Am5App() {
       return;
     }
 
-    if (!confirm("정말 퇴장하시겠습니까?")) return;
-
-    setBusy(true);
-    try {
-      const body = await memberFetch("/api/member/check-out", {
-        method: "POST",
-        body: JSON.stringify({ meetingDate: today })
-      });
-      await loadData();
-      showToast(checkoutToastMessage("퇴장 처리했습니다.", body));
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "퇴장 처리에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
+    setConfirmDialog({
+      title: "정말 퇴장하시겠습니까?",
+      message: "",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          const body = await memberFetch("/api/member/check-out", {
+            method: "POST",
+            body: JSON.stringify({ meetingDate: today })
+          });
+          await loadData();
+          showToast(checkoutToastMessage("퇴장 처리했습니다.", body));
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "퇴장 처리에 실패했습니다.");
+        } finally {
+          setBusy(false);
+        }
+      }
+    });
   }
 
   async function setMemberAttendance(member: Profile, action: "check-in" | "check-out") {
@@ -1755,16 +1763,18 @@ export function Am5App() {
   }
 
   async function finishMatch(match: Match) {
-    setFinishConfirmMatch(match);
-  }
-
-  async function confirmFinishMatch(match: Match) {
-    await guarded(async () => {
-      await memberFetch("/api/member/matches/finish", {
-        method: "POST",
-        body: JSON.stringify({ matchId: match.id })
-      });
-    }, "경기를 종료했습니다.");
+    setConfirmDialog({
+      title: "정말 경기를 종료하시겠습니까?",
+      message: "종료 후 반드시 경기 결과를 입력해야 합니다.",
+      onConfirm: async () => {
+        await guarded(async () => {
+          await memberFetch("/api/member/matches/finish", {
+            method: "POST",
+            body: JSON.stringify({ matchId: match.id })
+          });
+        }, "경기를 종료했습니다.");
+      }
+    });
   }
 
   async function saveResult(match: Match, teamAScore: number, teamBScore: number, options: { autoAssign?: boolean } = {}) {
@@ -1947,11 +1957,16 @@ export function Am5App() {
   }
 
   async function signOut() {
-    if (!confirm("정말 로그아웃하시겠습니까?")) return;
-    await supabase.auth.signOut();
-    setSession(null);
-    setProfile(null);
-    setTab("today");
+    setConfirmDialog({
+      title: "정말 로그아웃하시겠습니까?",
+      message: "",
+      onConfirm: async () => {
+        await supabase.auth.signOut();
+        setSession(null);
+        setProfile(null);
+        setTab("today");
+      }
+    });
   }
 
   function matchTeam(matchId: string, team: Team) {
@@ -2278,7 +2293,7 @@ export function Am5App() {
               <section className="today-focus-panel">
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>{profileDisplayName(profile)}님, 오늘도 즐겁게 시작해볼까요?</h1>
-                <p className="desc">참석을 누르면 오늘 모임 대기열에 들어가고 경기 배정이 시작됩니다.</p>
+                <h1 className="guide">참석을 누르면 오늘 모임 대기열에 들어가고 경기 배정이 시작됩니다.</h1>
                 <button className="full-button primary" disabled={busy} type="button" onClick={checkIn}>
                   <CheckCircle2 size={19} />
                   참석하기
@@ -2300,9 +2315,9 @@ export function Am5App() {
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>대기 중입니다</h1>
                 {waitingPresentCount < 4 ? (
-                  <h2>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다. 빨리 오라고 독촉하세요!!</h2>
+                  <h1>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다. 빨리 오라고 독촉하세요!!</h1>
                 ) : availableCourtsNowCount === 0 ? (
-                  <h2>현재 모든 코트에서 경기 중입니다</h2>
+                  <h1>현재 모든 코트에서 경기 중입니다</h1>
                 ) : null}
                 <p className="muted">대기 인원 {waitingPresentCount}명 | 가용 코트 {availableCourtsNowCount}면</p>
                 <div className="quick-actions single">
@@ -2897,14 +2912,18 @@ export function Am5App() {
         })}
       </nav>
 
-      {finishConfirmMatch && (
-        <div className="dialog-overlay" onClick={() => setFinishConfirmMatch(null)}>
+      {confirmDialog && (
+        <div className="dialog-overlay" onClick={() => setConfirmDialog(null)}>
           <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
-            <h2>정말 경기를 종료하시겠습니까?</h2>
-            <p>종료 후 반드시 경기 결과를 입력해야 합니다.</p>
+            <h2>{confirmDialog.title}</h2>
+            {confirmDialog.message && <p>{confirmDialog.message}</p>}
             <div className="dialog-actions">
-              <button className="full-button" type="button" onClick={() => setFinishConfirmMatch(null)}>취소</button>
-              <button className="full-button danger" type="button" disabled={busy} onClick={async () => { setFinishConfirmMatch(null); await confirmFinishMatch(finishConfirmMatch); }}>종료</button>
+              <button className="full-button" type="button" onClick={() => setConfirmDialog(null)}>취소</button>
+              <button className="full-button danger" type="button" disabled={busy} onClick={async () => {
+                const onConfirm = confirmDialog.onConfirm;
+                setConfirmDialog(null);
+                await onConfirm();
+              }}>{confirmDialog.message ? "종료" : "확인"}</button>
             </div>
           </div>
         </div>
