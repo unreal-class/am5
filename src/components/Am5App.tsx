@@ -2297,9 +2297,9 @@ export function Am5App() {
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>대기 중입니다</h1>
                 {waitingPresentCount < 4 ? (
-                  <h2>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다</h2>
+                  <h2>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다. 빨리 오라고 독촉하세요!!</h2>
                 ) : availableCourtsNowCount === 0 ? (
-                  <h2>모든 코트에서 경기 중입니다</h2>
+                  <h2>현재 모든 코트에서 경기 중입니다</h2>
                 ) : null}
                 <p className="muted">대기 인원 {waitingPresentCount}명 | 가용 코트 {availableCourtsNowCount}면</p>
                 <div className="quick-actions single">
