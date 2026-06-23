@@ -2064,6 +2064,7 @@ export function Am5App() {
   function renderMemberManagementCard(member: Profile) {
     const latestAttendance = todayLatestAttendanceByMemberId.get(member.id);
     const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
+    const hasActiveMatch = activeMatchMemberIds.has(member.id);
     const draft = memberDrafts[member.id] ?? {
       display_name: member.display_name,
       phone: member.phone,
@@ -2163,7 +2164,9 @@ export function Am5App() {
             <strong>오늘 출석</strong>
             <small>
               {isCheckedIn
-                ? `출석 ${formatTime(latestAttendance?.checked_in_at)}`
+                ? hasActiveMatch
+                  ? `출석 ${formatTime(latestAttendance?.checked_in_at)} (경기 중)`
+                  : `출석 ${formatTime(latestAttendance?.checked_in_at)} (${elapsedMinutes(latestAttendance?.checked_in_at ?? null, new Date().toISOString()) ?? 0}분 대기)`
                 : latestAttendance?.checked_out_at
                   ? `최근 퇴장 ${formatTime(latestAttendance.checked_out_at)}`
                   : "오늘 출석 기록 없음"}

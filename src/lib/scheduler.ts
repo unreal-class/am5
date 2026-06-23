@@ -25,7 +25,13 @@ type Candidate = {
   profile: Profile;
   todayGames: number;
   winRate: number;
+  waitingMinutes: number;
+  checkedInAt: string;
 };
+
+function waitingMinutes(attendance: Attendance) {
+  return Math.max(0, Math.round((Date.now() - new Date(attendance.checked_in_at).getTime()) / 60000));
+}
 
 const ALL_COURTS: number[] = DEFAULT_COURTS.map((court) => court.court_number);
 
@@ -70,16 +76,6 @@ function buildHistory(matches: Match[], players: MatchPlayer[]) {
   return { partnerCounts, opponentCounts };
 }
 
-function combinations<T>(items: T[], size: number): T[][] {
-  if (size === 0) return [[]];
-  if (items.length < size) return [];
-  const [head, ...tail] = items;
-  return [
-    ...combinations(tail, size - 1).map((group) => [head, ...group]),
-    ...combinations(tail, size)
-  ];
-}
-
 function isMixed(team: Candidate[]) {
   return team.some((player) => player.profile.gender === "female") && team.some((player) => player.profile.gender === "male");
 }
@@ -95,31 +91,28 @@ function isEligibleProfile(profile: Profile) {
 function scorePairing(
   teamA: Candidate[],
   teamB: Candidate[],
-  partnerCounts: Map<string, number>,
-  opponentCounts: Map<string, number>
+  partnerCounts: Map<string, number>
 ) {
+  const hasWomen = [...teamA, ...teamB].some((player) => player.profile.gender === "female");
+
+  let genderPenalty = 0;
+  if (hasWomen) {
+    if (!isMixed(teamA)) genderPenalty += 1;
+    if (!isMixed(teamB)) genderPenalty += 1;
+  }
+
   const balance = Math.abs(teamAverage(teamA) - teamAverage(teamB));
+
   const partnerRepeat =
     (partnerCounts.get(pairKey(teamA[0].profile.id, teamA[1].profile.id)) ?? 0) +
     (partnerCounts.get(pairKey(teamB[0].profile.id, teamB[1].profile.id)) ?? 0);
 
-  let opponentRepeat = 0;
-  for (const a of teamA) {
-    for (const b of teamB) {
-      opponentRepeat += opponentCounts.get(pairKey(a.profile.id, b.profile.id)) ?? 0;
-    }
-  }
-
-  const hasWomen = [...teamA, ...teamB].some((player) => player.profile.gender === "female");
-  const mixedPenalty = hasWomen ? (isMixed(teamA) ? 0 : 8) + (isMixed(teamB) ? 0 : 8) : 0;
-
-  return balance + partnerRepeat * 12 + opponentRepeat * 3 + mixedPenalty;
+  return genderPenalty * 100000 + balance * 100 + partnerRepeat;
 }
 
 function bestPairing(
   group: Candidate[],
-  partnerCounts: Map<string, number>,
-  opponentCounts: Map<string, number>
+  partnerCounts: Map<string, number>
 ) {
   const pairings: Array<[Candidate[], Candidate[]]> = [
     [
@@ -140,7 +133,7 @@ function bestPairing(
     .map(([teamA, teamB]) => ({
       teamA,
       teamB,
-      score: scorePairing(teamA, teamB, partnerCounts, opponentCounts),
+      score: scorePairing(teamA, teamB, partnerCounts),
       balanceGap: Math.abs(teamAverage(teamA) - teamAverage(teamB))
     }))
     .sort((a, b) => a.score - b.score)[0];
@@ -186,6 +179,8 @@ export function generateMatches({
     .map((attendance) => attendance.member_id)
     .filter((memberId) => !occupiedPlayers.has(memberId));
 
+  const attendanceByMemberId = new Map(attendances.map((att) => [att.member_id, att]));
+
   let candidates = eligibleMemberIds
     .map((memberId) => profileById.get(memberId))
     .filter((profile): profile is Profile => Boolean(profile))
@@ -193,17 +188,20 @@ export function generateMatches({
     .map((profile) => {
       const stat = stats.get(profile.id);
       const winRate = stat && stat.games > 0 ? stat.winRate : profile.is_guest ? profile.seed_win_rate : 0;
+      const att = attendanceByMemberId.get(profile.id);
 
       return {
         profile,
         todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
-        winRate
+        winRate,
+        waitingMinutes: att ? waitingMinutes(att) : 0,
+        checkedInAt: att?.checked_in_at ?? ""
       };
     })
     .sort((a, b) => {
       if (a.todayGames !== b.todayGames) return a.todayGames - b.todayGames;
-      if (a.winRate !== b.winRate) return a.winRate - b.winRate;
-      return a.profile.display_name.localeCompare(b.profile.display_name, "ko");
+      if (b.waitingMinutes !== a.waitingMinutes) return b.waitingMinutes - a.waitingMinutes;
+      return a.checkedInAt.localeCompare(b.checkedInAt);
     });
 
   const { partnerCounts, opponentCounts } = buildHistory(matches, players);
@@ -212,30 +210,18 @@ export function generateMatches({
   const slots = Math.min(availableCourts.length, Math.floor(candidates.length / 4));
 
   for (let slot = 0; slot < slots; slot += 1) {
-    const searchPool = candidates.slice(0, 12);
-    const groups = combinations(searchPool, 4);
+    const group = candidates.slice(0, 4);
+    if (group.length < 4) break;
 
-    const best = groups
-      .map((group) => {
-        const pairing = bestPairing(group, partnerCounts, opponentCounts);
-        const fairness = group.reduce((sum, player) => sum + player.todayGames, 0) * 60;
-        return {
-          group,
-          pairing,
-          score: fairness + pairing.score
-        };
-      })
-      .sort((a, b) => a.score - b.score)[0];
+    const pairing = bestPairing(group, partnerCounts);
+    const usedIds = new Set(group.map((c) => c.profile.id));
 
-    if (!best) break;
-
-    const used = new Set(best.group.map((player) => player.profile.id));
     generated.push({
       court_number: availableCourts[slot],
       round_number: nextRound,
-      teamA: best.pairing.teamA.map((player) => player.profile.id),
-      teamB: best.pairing.teamB.map((player) => player.profile.id),
-      balanceGap: best.pairing.balanceGap
+      teamA: pairing.teamA.map((player) => player.profile.id),
+      teamB: pairing.teamB.map((player) => player.profile.id),
+      balanceGap: pairing.balanceGap
     });
 
     const registerPair = (team: Candidate[]) => {
@@ -243,17 +229,17 @@ export function generateMatches({
       partnerCounts.set(key, (partnerCounts.get(key) ?? 0) + 1);
     };
 
-    registerPair(best.pairing.teamA);
-    registerPair(best.pairing.teamB);
+    registerPair(pairing.teamA);
+    registerPair(pairing.teamB);
 
-    for (const a of best.pairing.teamA) {
-      for (const b of best.pairing.teamB) {
+    for (const a of pairing.teamA) {
+      for (const b of pairing.teamB) {
         const key = pairKey(a.profile.id, b.profile.id);
         opponentCounts.set(key, (opponentCounts.get(key) ?? 0) + 1);
       }
     }
 
-    candidates = candidates.filter((candidate) => !used.has(candidate.profile.id));
+    candidates = candidates.filter((c) => !usedIds.has(c.profile.id));
   }
 
   return generated;
