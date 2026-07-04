@@ -19,6 +19,7 @@ type GenerateInput = {
   players: MatchPlayer[];
   stats: Map<string, MemberStats>;
   availableCourts?: number[];
+  now?: number;
 };
 
 type Candidate = {
@@ -27,13 +28,46 @@ type Candidate = {
   winRate: number;
   waitingMinutes: number;
   checkedInAt: string;
+  queueRank: number;
+  checkInRank: number;
 };
 
-function waitingMinutes(attendance: Attendance) {
-  return Math.max(0, Math.round((Date.now() - new Date(attendance.checked_in_at).getTime()) / 60000));
+function totalWaitingMinutes(
+  memberId: string,
+  attendance: Attendance,
+  matches: Match[],
+  players: MatchPlayer[],
+  meetingId: string,
+  now: number
+) {
+  const checkedInAt = new Date(attendance.checked_in_at).getTime();
+  const todayMatchIds = new Set(matches.filter((match) => match.meeting_id === meetingId).map((match) => match.id));
+  const memberMatchIds = new Set(
+    players
+      .filter((player) => player.member_id === memberId)
+      .filter((player) => todayMatchIds.has(player.match_id))
+      .map((player) => player.match_id)
+  );
+  const playingMs = matches
+    .filter((match) => memberMatchIds.has(match.id))
+    .reduce((sum, match) => {
+      if (!match.started_at || !match.ended_at) return sum;
+
+      const startedAt = Math.max(checkedInAt, new Date(match.started_at).getTime());
+      const endedAt = Math.min(now, new Date(match.ended_at).getTime());
+      return sum + Math.max(0, endedAt - startedAt);
+    }, 0);
+
+  return Math.max(0, Math.round((now - checkedInAt - playingMs) / 60000));
 }
 
 const ALL_COURTS: number[] = DEFAULT_COURTS.map((court) => court.court_number);
+const GROUP_POOL_SIZE = 12;
+const TODAY_GAMES_WEIGHT = 10000;
+const QUEUE_RANK_WEIGHT = 100;
+const GROUP_REPEAT_WEIGHT = 4000;
+const SKILL_SPREAD_WEIGHT = 400;
+const WAITING_RELIEF_WEIGHT = 300;
 
 function pairKey(a: string, b: string) {
   return [a, b].sort().join(":");
@@ -82,6 +116,101 @@ function isMixed(team: Candidate[]) {
 
 function teamAverage(team: Candidate[]) {
   return team.reduce((sum, player) => sum + player.winRate, 0) / team.length;
+}
+
+function combinations<T>(items: T[], size: number): T[][] {
+  if (size === 0) return [[]];
+  if (items.length < size) return [];
+
+  const [head, ...tail] = items;
+  return [
+    ...combinations(tail, size - 1).map((group) => [head, ...group]),
+    ...combinations(tail, size)
+  ];
+}
+
+function skillSpread(group: Candidate[]) {
+  const rates = group.map((player) => player.winRate);
+  return Math.max(...rates) - Math.min(...rates);
+}
+
+function groupRepeatCount(
+  group: Candidate[],
+  partnerCounts: Map<string, number>,
+  opponentCounts: Map<string, number>
+) {
+  let total = 0;
+
+  for (let i = 0; i < group.length; i += 1) {
+    for (let j = i + 1; j < group.length; j += 1) {
+      const key = pairKey(group[i].profile.id, group[j].profile.id);
+      total += (partnerCounts.get(key) ?? 0) + (opponentCounts.get(key) ?? 0);
+    }
+  }
+
+  return total;
+}
+
+function scoreGroup(
+  group: Candidate[],
+  partnerCounts: Map<string, number>,
+  opponentCounts: Map<string, number>
+) {
+  const todayGamesTotal = group.reduce((sum, player) => sum + player.todayGames, 0);
+  const queueRankTotal = group.reduce((sum, player) => sum + player.queueRank, 0);
+  const repeatCount = groupRepeatCount(group, partnerCounts, opponentCounts);
+  const spread = skillSpread(group);
+  const waitingRelief = group.reduce((sum, player) => sum + player.waitingMinutes, 0);
+
+  return (
+    todayGamesTotal * TODAY_GAMES_WEIGHT +
+    queueRankTotal * QUEUE_RANK_WEIGHT +
+    repeatCount * GROUP_REPEAT_WEIGHT +
+    spread * SKILL_SPREAD_WEIGHT -
+    waitingRelief * WAITING_RELIEF_WEIGHT
+  );
+}
+
+function checkInRankTotal(group: Candidate[]) {
+  return group.reduce((sum, player) => sum + player.checkInRank, 0);
+}
+
+function bestGroup(
+  candidates: Candidate[],
+  partnerCounts: Map<string, number>,
+  opponentCounts: Map<string, number>
+) {
+  const minGames = Math.min(...candidates.map((candidate) => candidate.todayGames));
+  const lowestGameCandidates = candidates.filter((candidate) => candidate.todayGames === minGames);
+  const required = [...lowestGameCandidates]
+    .sort((a, b) => {
+      if (b.waitingMinutes !== a.waitingMinutes) return b.waitingMinutes - a.waitingMinutes;
+      return a.checkedInAt.localeCompare(b.checkedInAt);
+    })
+    .slice(0, Math.min(2, lowestGameCandidates.length));
+  const requiredIds = new Set(required.map((candidate) => candidate.profile.id));
+  const poolCandidates = candidates
+    .filter((candidate) => candidate.todayGames === minGames)
+    .concat(candidates.filter((candidate) => candidate.todayGames > minGames))
+    .slice(0, Math.max(GROUP_POOL_SIZE, 4));
+  const poolById = new Map(poolCandidates.map((candidate) => [candidate.profile.id, candidate]));
+
+  required.forEach((candidate) => {
+    poolById.set(candidate.profile.id, candidate);
+  });
+
+  return combinations([...poolById.values()], 4)
+    .filter((group) => [...requiredIds].every((id) => group.some((candidate) => candidate.profile.id === id)))
+    .filter((group) => {
+      const lowestGameCount = group.filter((candidate) => candidate.todayGames === minGames).length;
+      return lowestGameCount === Math.min(4, lowestGameCandidates.length);
+    })
+    .map((group) => ({
+      group,
+      score: scoreGroup(group, partnerCounts, opponentCounts),
+      checkInRankTotal: checkInRankTotal(group)
+    }))
+    .sort((a, b) => a.score - b.score || a.checkInRankTotal - b.checkInRankTotal)[0]?.group ?? [];
 }
 
 function isEligibleProfile(profile: Profile) {
@@ -168,7 +297,8 @@ export function generateMatches({
   matches,
   players,
   stats,
-  availableCourts: configuredCourts
+  availableCourts: configuredCourts,
+  now = Date.now()
 }: GenerateInput): GeneratedMatch[] {
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const occupiedPlayers = activePlayerIds(matches, players, meetingId);
@@ -194,15 +324,24 @@ export function generateMatches({
         profile,
         todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
         winRate,
-        waitingMinutes: att ? waitingMinutes(att) : 0,
-        checkedInAt: att?.checked_in_at ?? ""
+        waitingMinutes: att ? totalWaitingMinutes(profile.id, att, matches, players, meetingId, now) : 0,
+        checkedInAt: att?.checked_in_at ?? "",
+        queueRank: 0,
+        checkInRank: 0
       };
     })
+    .map((candidate, _index, rows) => ({
+      ...candidate,
+      checkInRank: [...rows]
+        .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt))
+        .findIndex((row) => row.profile.id === candidate.profile.id)
+    }))
     .sort((a, b) => {
       if (a.todayGames !== b.todayGames) return a.todayGames - b.todayGames;
       if (b.waitingMinutes !== a.waitingMinutes) return b.waitingMinutes - a.waitingMinutes;
       return a.checkedInAt.localeCompare(b.checkedInAt);
-    });
+    })
+    .map((candidate, queueRank) => ({ ...candidate, queueRank }));
 
   const { partnerCounts, opponentCounts } = buildHistory(matches, players);
   const generated: GeneratedMatch[] = [];
@@ -210,7 +349,7 @@ export function generateMatches({
   const slots = Math.min(availableCourts.length, Math.floor(candidates.length / 4));
 
   for (let slot = 0; slot < slots; slot += 1) {
-    const group = candidates.slice(0, 4);
+    const group = bestGroup(candidates, partnerCounts, opponentCounts);
     if (group.length < 4) break;
 
     const pairing = bestPairing(group, partnerCounts);
