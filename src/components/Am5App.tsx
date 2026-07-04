@@ -829,7 +829,7 @@ function AuthScreen({
 }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [loginId, setLoginId] = useState("");
-  const [password, setPassword] = useState(DEFAULT_PASSWORD);
+  const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
   const [gender, setGender] = useState<Gender>("male");
@@ -898,7 +898,7 @@ function AuthScreen({
       setMessage("회원가입이 완료되었습니다. 기본 비밀번호로 로그인해주세요.");
       setMode("login");
       setLoginId(effectiveLoginId);
-      setPassword(DEFAULT_PASSWORD);
+      setPassword("");
       setBusy(false);
       return;
     }
@@ -932,7 +932,7 @@ function AuthScreen({
           <div>
             <div className="brand-title-row">
               <h1>경기 관리</h1>
-              <span className="environment-badge">PRODUCTION v2</span>
+              <span className="environment-badge">PRODUCTION {process.env.NEXT_PUBLIC_LAST_COMMIT_DATE ?? "unknown"}</span>
             </div>
             <p className="muted">테니스 모임 운영</p>
           </div>
