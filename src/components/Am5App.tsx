@@ -29,6 +29,7 @@ import { loginIdToEmail, normalizeLoginId } from "@/lib/auth-id";
 import {
   currentMonthKey,
   currentYearKey,
+  dateTimeKey,
   elapsedMinutes,
   formatDate,
   formatRate,
@@ -56,7 +57,7 @@ import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
-type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role" | "seed_win_rate">;
+type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role"> & { seed_win_rate: number | string };
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
   id: string;
@@ -1116,7 +1117,12 @@ export function Am5App() {
   } | null>(null);
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
   const pollingInFlightRef = useRef(false);
-  const [newMemberDraft, setNewMemberDraft] = useState({
+  const [newMemberDraft, setNewMemberDraft] = useState<{
+    displayName: string;
+    phone: string;
+    gender: Gender;
+    seedWinRate: number | string;
+  }>({
     displayName: "",
     phone: "",
     gender: "male" as Gender,
@@ -1160,8 +1166,8 @@ export function Am5App() {
   }, [todayAttendances]);
   const memberManagementProfiles = useMemo(() => {
     const todayGuestIds = new Set(todayAttendances.map((attendance) => attendance.member_id));
-    return visibleProfiles.filter((row) => !row.is_guest || todayGuestIds.has(row.id));
-  }, [todayAttendances, visibleProfiles]);
+    return visibleProfiles.filter((row) => !row.is_guest || todayGuestIds.has(row.id) || dateTimeKey(row.created_at) === today);
+  }, [today, todayAttendances, visibleProfiles]);
   const memberManagementMembers = useMemo(
     () => memberManagementProfiles.filter((row) => !row.is_guest),
     [memberManagementProfiles]
@@ -1838,7 +1844,9 @@ export function Am5App() {
     const draft = memberDrafts[memberId];
     if (!draft) return;
 
-    if (!Number.isFinite(draft.seed_win_rate) || draft.seed_win_rate < 0 || draft.seed_win_rate > 100) {
+    const seedWinRate = Number(draft.seed_win_rate);
+
+    if (!Number.isFinite(seedWinRate) || seedWinRate < 0 || seedWinRate > 100) {
       showToast("기준 승률은 0~100 사이 값으로 입력해주세요.");
       return;
     }
@@ -1846,7 +1854,7 @@ export function Am5App() {
     await guarded(async () => {
       const body = await adminFetch(`/api/admin/members/${memberId}`, {
         method: "PATCH",
-        body: JSON.stringify(draft)
+        body: JSON.stringify({ ...draft, seed_win_rate: seedWinRate })
       });
       if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
     }, "회원 정보를 저장했습니다.");
@@ -1897,7 +1905,7 @@ export function Am5App() {
       });
       await loadData();
 
-      showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 출석 처리되었습니다.`);
+      showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 저장되었습니다.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "게스트 추가에 실패했습니다.");
     } finally {
@@ -2229,7 +2237,7 @@ export function Am5App() {
               onChange={(event) =>
                 setMemberDrafts((rows) => ({
                   ...rows,
-                  [member.id]: { ...draft, seed_win_rate: Number(event.target.value) }
+                  [member.id]: { ...draft, seed_win_rate: event.target.value }
                 }))
               }
             />
@@ -2721,7 +2729,7 @@ export function Am5App() {
                     onChange={(event) =>
                       setNewMemberDraft((draft) => ({
                         ...draft,
-                        seedWinRate: Number(event.target.value)
+                        seedWinRate: event.target.value
                       }))
                     }
                   />

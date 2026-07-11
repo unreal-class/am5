@@ -133,18 +133,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: profileError.message }, { status: 400 });
   }
 
-  if (isGuest && todayMeetingId) {
-    const { error: attendanceError } = await admin.from("attendances").insert({
-      meeting_id: todayMeetingId,
-      member_id: data.user.id,
-      checked_in_at: new Date().toISOString()
-    });
-
-    if (attendanceError) {
-      await admin.auth.admin.deleteUser(data.user.id);
-      return NextResponse.json({ message: attendanceError.message }, { status: 400 });
-    }
-  }
-
   return NextResponse.json({ ok: true, memberId: data.user.id, displayName });
 }
