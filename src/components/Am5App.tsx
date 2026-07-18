@@ -1877,11 +1877,6 @@ export function Am5App() {
       return;
     }
 
-    if (!todayMeeting) {
-      showToast("당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.");
-      return;
-    }
-
     setBusy(true);
     try {
       const body = await adminFetch("/api/admin/members", {
@@ -1893,7 +1888,7 @@ export function Am5App() {
           loginId,
           isGuest,
           seedWinRate,
-          todayMeetingId: todayMeeting?.id ?? null
+          meetingDate: today
         })
       });
 
@@ -1910,16 +1905,17 @@ export function Am5App() {
         includesCurrentUser: boolean;
       }>;
       const guestMatch = assignedMatches.find((match) => match.includesCurrentUser);
-      const savedMessage = `${body.displayName ?? displayName} 게스트를 추가하고 출석 처리했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 저장되었습니다.`;
+      const savedMessage = `${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 저장되었습니다.`;
+      const attendanceMessage = body.checkedIn ? `${savedMessage} 오늘 모임에 출석 처리했습니다.` : savedMessage;
 
       if (body.assignmentWarning) {
-        showToast(`${savedMessage} 자동 대진 보류: ${body.assignmentWarning}`);
+        showToast(`${attendanceMessage} 자동 대진 보류: ${body.assignmentWarning}`);
       } else if (guestMatch) {
-        showToast(`${savedMessage} 코트 ${guestMatch.courtName}에 배정됐습니다.`);
+        showToast(`${attendanceMessage} 코트 ${guestMatch.courtName}에 배정됐습니다.`);
       } else if (assignedMatches.length > 0) {
-        showToast(`${savedMessage} 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
+        showToast(`${attendanceMessage} 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
       } else {
-        showToast(savedMessage);
+        showToast(attendanceMessage);
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "게스트 추가에 실패했습니다.");
@@ -2703,7 +2699,7 @@ export function Am5App() {
               <div className="section-head">
                 <h2>게스트 추가</h2>
                 <span className={classNames("status-pill", todayMeeting && "in_progress")}>
-                  {todayMeeting ? "당일 모임 확인됨" : "당일 모임 필요"}
+                  {todayMeeting ? "당일 모임 확인됨" : "등록 시 모임 생성"}
                 </span>
               </div>
               <div className="member-form">
@@ -2766,12 +2762,12 @@ export function Am5App() {
                   </select>
                 </label>
               </div>
-              <button className="full-button primary" disabled={busy || !todayMeeting} type="button" onClick={createMember}>
+              <button className="full-button primary" disabled={busy} type="button" onClick={createMember}>
                 <UserPlus size={18} />
                 게스트 추가
               </button>
               {!todayMeeting && (
-                <p className="helper-text">당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다.</p>
+                <p className="helper-text">당일 모임이 없으면 게스트 추가와 함께 오늘 모임을 만들고 출석 처리합니다.</p>
               )}
             </section>
 

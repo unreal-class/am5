@@ -27,6 +27,10 @@ function nextGuestDisplayName(baseName: string, existingNames: string[]) {
   return `${baseName}${suffix}`;
 }
 
+function validDateKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 export async function POST(request: Request) {
   const gate = await requireAdmin(request);
 
@@ -41,7 +45,7 @@ export async function POST(request: Request) {
   const gender = String(body.gender ?? "other") as Gender;
   const rawSeedWinRate = Number(body.seedWinRate ?? 50);
   const seedWinRate = Number.isFinite(rawSeedWinRate) ? Math.max(0, Math.min(100, rawSeedWinRate)) : Number.NaN;
-  const todayMeetingId = String(body.todayMeetingId ?? "");
+  const meetingDate = String(body.meetingDate ?? "");
   const baseLoginId = isGuest
     ? normalizeLoginId(`guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
     : normalizeLoginId(String(body.loginId ?? requestedDisplayName));
@@ -53,24 +57,31 @@ export async function POST(request: Request) {
 
   const admin = gate.admin;
   let displayName = requestedDisplayName;
+  let checkedInMeetingId: string | null = null;
 
   if (isGuest) {
-    if (!todayMeetingId) {
-      return NextResponse.json({ message: "당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다." }, { status: 400 });
+    if (!validDateKey(meetingDate)) {
+      return NextResponse.json({ message: "모임 날짜가 올바르지 않습니다." }, { status: 400 });
     }
 
-    const today = new Date();
-    const meetingDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     const { data: meeting, error: meetingError } = await admin
       .from("meetings")
-      .select("id, status")
-      .eq("id", todayMeetingId)
-      .eq("meeting_date", meetingDate)
+      .upsert(
+        {
+          meeting_date: meetingDate,
+          status: "active",
+          created_by: gate.user.id
+        },
+        { onConflict: "meeting_date" }
+      )
+      .select("id")
       .single();
 
     if (meetingError || !meeting) {
-      return NextResponse.json({ message: "당일 모임이 생성된 상태에서만 게스트를 추가할 수 있습니다." }, { status: 400 });
+      return NextResponse.json({ message: meetingError?.message ?? "모임을 생성하지 못했습니다." }, { status: 400 });
     }
+
+    checkedInMeetingId = meeting.id;
 
     const { data: existingNameProfiles, error: existingNameProfilesError } = await admin
       .from("profiles")
@@ -137,9 +148,9 @@ export async function POST(request: Request) {
   let assignedMatches: AssignedMatchSummary[] = [];
   let assignmentWarning: string | null = null;
 
-  if (isGuest) {
+  if (isGuest && checkedInMeetingId) {
     const { error: attendanceError } = await admin.from("attendances").insert({
-      meeting_id: todayMeetingId,
+      meeting_id: checkedInMeetingId,
       member_id: data.user.id,
       checked_in_at: new Date().toISOString(),
       checked_out_at: null
@@ -153,7 +164,7 @@ export async function POST(request: Request) {
     try {
       assignedMatches = await autoAssignMatches({
         admin,
-        meetingId: todayMeetingId,
+        meetingId: checkedInMeetingId,
         currentUserId: data.user.id
       });
     } catch (error) {
@@ -161,5 +172,12 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, memberId: data.user.id, displayName, assignedMatches, assignmentWarning });
+  return NextResponse.json({
+    ok: true,
+    memberId: data.user.id,
+    displayName,
+    checkedIn: Boolean(checkedInMeetingId),
+    assignedMatches,
+    assignmentWarning
+  });
 }
