@@ -141,7 +141,7 @@ export async function checkoutMemberAndReassign({
 
   const matchById = new Map(((activeMatches ?? []) as Pick<Match, "id" | "status">[]).map((match) => [match.id, match]));
   const activeMatchIds = Array.from(matchById.keys());
-  let scheduledMatchIds: string[] = [];
+  let canceledMatchIds: string[] = [];
 
   if (activeMatchIds.length > 0) {
     const { data: activePlayers, error: activePlayerError } = await admin
@@ -155,23 +155,11 @@ export async function checkoutMemberAndReassign({
     }
 
     const memberActivePlayers = (activePlayers ?? []) as Pick<MatchPlayer, "match_id">[];
-    const inProgressMatch = memberActivePlayers.some((player) => matchById.get(player.match_id)?.status === "in_progress");
-
-    if (inProgressMatch) {
-      throw new Error("진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료한 뒤 퇴장해주세요.");
-    }
-
-    scheduledMatchIds = Array.from(
-      new Set(
-        memberActivePlayers
-          .filter((player) => matchById.get(player.match_id)?.status === "scheduled")
-          .map((player) => player.match_id)
-      )
-    );
+    canceledMatchIds = Array.from(new Set(memberActivePlayers.map((player) => player.match_id)));
   }
 
-  if (scheduledMatchIds.length > 0) {
-    const { error: cancelError } = await admin.from("matches").delete().in("id", scheduledMatchIds);
+  if (canceledMatchIds.length > 0) {
+    const { error: cancelError } = await admin.from("matches").delete().in("id", canceledMatchIds);
 
     if (cancelError) {
       throw new Error(cancelError.message);
@@ -207,7 +195,7 @@ export async function checkoutMemberAndReassign({
   }
 
   return {
-    canceledMatchCount: scheduledMatchIds.length,
+    canceledMatchCount: canceledMatchIds.length,
     assignedMatches,
     assignmentWarning
   };

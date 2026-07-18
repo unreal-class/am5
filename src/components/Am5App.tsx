@@ -1627,17 +1627,13 @@ export function Am5App() {
     if (!todayMeeting || !memberId) return;
 
     const memberMatchIds = new Set(matchPlayers.filter((player) => player.member_id === memberId).map((player) => player.match_id));
-    const inProgressMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && match.status === "in_progress");
-
-    if (inProgressMatch) {
-      showToast("현재 진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료한 뒤 퇴장해주세요.");
-      return;
-    }
+    const assignedMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && (match.status === "scheduled" || match.status === "in_progress"));
+    const isInProgress = assignedMatch?.status === "in_progress";
 
     setConfirmDialog({
-      title: "정말 퇴장하시겠습니까?",
-      message: "",
-      confirmLabel: "확인",
+      title: isInProgress ? "현재 경기 중인데도 퇴장하시겠습니까?" : assignedMatch ? "배정된 경기를 취소하고 퇴장하시겠습니까?" : "정말 퇴장하시겠습니까?",
+      message: assignedMatch ? "확인하면 배정된 경기 자체가 취소되고 퇴장 처리됩니다." : "",
+      confirmLabel: isInProgress || assignedMatch ? "그래도 퇴장" : "확인",
       onConfirm: async () => {
         setBusy(true);
         try {
@@ -1659,7 +1655,8 @@ export function Am5App() {
   async function setMemberAttendance(member: Profile, action: "check-in" | "check-out") {
     const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
     const memberMatchIds = new Set(matchPlayers.filter((player) => player.member_id === member.id).map((player) => player.match_id));
-    const inProgressMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && match.status === "in_progress");
+    const assignedMatch = todayMatches.find((match) => memberMatchIds.has(match.id) && (match.status === "scheduled" || match.status === "in_progress"));
+    const isInProgress = assignedMatch?.status === "in_progress";
 
     if (action === "check-in" && isCheckedIn) {
       showToast(`${member.display_name}님은 이미 출석 중입니다.`);
@@ -1671,16 +1668,11 @@ export function Am5App() {
       return;
     }
 
-    if (action === "check-out" && inProgressMatch) {
-      showToast(`${member.display_name}님은 진행 중인 경기가 있습니다. 먼저 경기 종료와 결과 입력을 완료해주세요.`);
-      return;
-    }
-
     if (action === "check-out") {
       setConfirmDialog({
-        title: `${member.display_name}님을 퇴장시키시겠습니까?`,
-        message: "",
-        confirmLabel: "확인",
+        title: isInProgress ? `${member.display_name}님은 현재 경기 중입니다. 그래도 퇴장시키시겠습니까?` : assignedMatch ? `${member.display_name}님의 배정 경기를 취소하고 퇴장시키시겠습니까?` : `${member.display_name}님을 퇴장시키시겠습니까?`,
+        message: assignedMatch ? "확인하면 배정된 경기 자체가 취소되고 퇴장 처리됩니다." : "",
+        confirmLabel: isInProgress || assignedMatch ? "그래도 퇴장" : "확인",
         onConfirm: async () => {
           setBusy(true);
           try {
@@ -1948,13 +1940,20 @@ export function Am5App() {
         }
       });
     } else {
-      await guarded(async () => {
-        const body = await adminFetch(`/api/admin/members/${member.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ role })
-        });
-        if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
-      }, `${member.display_name}님의 관리자 권한을 삭제했습니다.`);
+      setConfirmDialog({
+        title: `${member.display_name}님의 관리자 권한을 삭제하시겠습니까?`,
+        message: "삭제 후에는 일반 회원 권한으로 전환됩니다.",
+        confirmLabel: "확인",
+        onConfirm: async () => {
+          await guarded(async () => {
+            const body = await adminFetch(`/api/admin/members/${member.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ role })
+            });
+            if (body.profile?.id === profile?.id) setProfile(body.profile as Profile);
+          }, `${member.display_name}님의 관리자 권한을 삭제했습니다.`);
+        }
+      });
     }
   }
 
