@@ -1905,7 +1905,22 @@ export function Am5App() {
       });
       await loadData();
 
-      showToast(`${body.displayName ?? displayName} 게스트를 추가했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 저장되었습니다.`);
+      const assignedMatches = (body.assignedMatches ?? []) as Array<{
+        courtName: string;
+        includesCurrentUser: boolean;
+      }>;
+      const guestMatch = assignedMatches.find((match) => match.includesCurrentUser);
+      const savedMessage = `${body.displayName ?? displayName} 게스트를 추가하고 출석 처리했습니다. 기준 승률 ${seedWinRate.toFixed(1)}%로 저장되었습니다.`;
+
+      if (body.assignmentWarning) {
+        showToast(`${savedMessage} 자동 대진 보류: ${body.assignmentWarning}`);
+      } else if (guestMatch) {
+        showToast(`${savedMessage} 코트 ${guestMatch.courtName}에 배정됐습니다.`);
+      } else if (assignedMatches.length > 0) {
+        showToast(`${savedMessage} 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
+      } else {
+        showToast(savedMessage);
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "게스트 추가에 실패했습니다.");
     } finally {

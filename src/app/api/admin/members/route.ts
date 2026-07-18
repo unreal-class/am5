@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loginIdToEmail, normalizeLoginId } from "@/lib/auth-id";
 import { DEFAULT_PASSWORD, type Gender } from "@/lib/models";
+import { autoAssignMatches, type AssignedMatchSummary } from "@/lib/server-matchmaker";
 import { requireAdmin } from "@/lib/server-supabase";
 
 const genders = new Set(["male", "female", "other"]);
@@ -133,5 +134,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: profileError.message }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, memberId: data.user.id, displayName });
+  let assignedMatches: AssignedMatchSummary[] = [];
+  let assignmentWarning: string | null = null;
+
+  if (isGuest) {
+    const { error: attendanceError } = await admin.from("attendances").insert({
+      meeting_id: todayMeetingId,
+      member_id: data.user.id,
+      checked_in_at: new Date().toISOString(),
+      checked_out_at: null
+    });
+
+    if (attendanceError) {
+      await admin.auth.admin.deleteUser(data.user.id);
+      return NextResponse.json({ message: attendanceError.message }, { status: 400 });
+    }
+
+    try {
+      assignedMatches = await autoAssignMatches({
+        admin,
+        meetingId: todayMeetingId,
+        currentUserId: data.user.id
+      });
+    } catch (error) {
+      assignmentWarning = error instanceof Error ? error.message : "자동 대진 생성에 실패했습니다.";
+    }
+  }
+
+  return NextResponse.json({ ok: true, memberId: data.user.id, displayName, assignedMatches, assignmentWarning });
 }
