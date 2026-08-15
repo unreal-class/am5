@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_PASSWORD } from "@/lib/models";
+import { RESET_PASSWORD } from "@/lib/models";
 import { requireAdmin } from "@/lib/server-supabase";
 
 export async function POST(request: Request) {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   }
 
   const { error: authError } = await gate.admin.auth.admin.updateUserById(memberId, {
-    password: DEFAULT_PASSWORD
+    password: RESET_PASSWORD
   });
 
   if (authError) {

@@ -7,6 +7,7 @@ export type RankingScope = "all" | "month" | "year";
 export type CourtName = "1" | "2" | "3";
 
 export const DEFAULT_PASSWORD = "AM5AM5";
+export const RESET_PASSWORD = "am5am5";
 export const ADMIN_LOGIN_ID = "admin";
 export const ADMIN_DISPLAY_NAME = "관리자";
 export const DEFAULT_COURTS = [

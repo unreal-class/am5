@@ -40,6 +40,7 @@ import {
   ADMIN_DISPLAY_NAME,
   DEFAULT_COURTS,
   DEFAULT_PASSWORD,
+  RESET_PASSWORD,
   courtName,
   type Attendance,
   type Court,
@@ -2113,7 +2114,7 @@ export function Am5App() {
     if (!member) return;
     setConfirmDialog({
       title: `${member.display_name}님의 비밀번호를 초기화하시겠습니까?`,
-      message: `비밀번호가 ${DEFAULT_PASSWORD}로 초기화됩니다.`,
+      message: `비밀번호가 ${RESET_PASSWORD}로 초기화됩니다.`,
       confirmLabel: "확인",
       onConfirm: async () => {
         await guarded(async () => {
@@ -2121,7 +2122,7 @@ export function Am5App() {
             method: "POST",
             body: JSON.stringify({ memberId })
           });
-        }, `비밀번호를 ${DEFAULT_PASSWORD}로 초기화했습니다.`);
+        }, `비밀번호를 ${RESET_PASSWORD}로 초기화했습니다.`);
       }
     });
   }
