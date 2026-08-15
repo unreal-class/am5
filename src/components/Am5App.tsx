@@ -57,6 +57,7 @@ import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
+type ResultView = "matches" | "players";
 type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role"> & { seed_win_rate: number | string };
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
@@ -90,6 +91,29 @@ type TestMatch = {
 type TestCourt = {
   courtNumber: number;
   match: TestMatch | null;
+};
+
+type PlayerMeetingResult = {
+  memberId: string;
+  name: string;
+  games: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  attendanceCount: number;
+  checkedInAt: string | null;
+  checkedOutAt: string | null;
+  attendanceMinutes: number | null;
+  playingMinutes: number;
+  waitingMinutes: number | null;
+  matchResults: Array<{
+    matchId: string;
+    roundNumber: number;
+    courtNumber: number;
+    result: "승" | "무" | "패";
+    score: string;
+  }>;
 };
 
 const genderLabels: Record<Gender, string> = {
@@ -144,6 +168,19 @@ function winnerLabel(winner: Team | null) {
 
 function matchHasResult(match: Match) {
   return match.team_a_score !== null && match.team_b_score !== null;
+}
+
+function durationMinutes(milliseconds: number) {
+  return Math.max(0, Math.round(milliseconds / 60000));
+}
+
+function formatDuration(minutes: number | null) {
+  if (minutes === null) return "-";
+  if (minutes < 60) return `${minutes}분`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}시간 ${remainder}분` : `${hours}시간`;
 }
 
 function isAssignedInProgress(match: Match) {
@@ -1105,6 +1142,7 @@ export function Am5App() {
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [tab, setTab] = useState<Tab>("today");
   const [resultMeetingId, setResultMeetingId] = useState("");
+  const [resultView, setResultView] = useState<ResultView>("matches");
   const [rankingScope, setRankingScope] = useState<RankingScope>("month");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1214,6 +1252,107 @@ export function Am5App() {
         .sort((a, b) => a.round_number - b.round_number || a.court_number - b.court_number),
     [matches, selectedResultMeetingId]
   );
+  const playerMeetingResults = useMemo<PlayerMeetingResult[]>(() => {
+    const selectedMatchById = new Map(resultMatches.map((match) => [match.id, match]));
+    const playersByMemberId = new Map<string, MatchPlayer[]>();
+
+    matchPlayers.forEach((player) => {
+      if (!selectedMatchById.has(player.match_id)) return;
+      const rows = playersByMemberId.get(player.member_id) ?? [];
+      rows.push(player);
+      playersByMemberId.set(player.member_id, rows);
+    });
+
+    const selectedAttendances = attendances.filter((attendance) => attendance.meeting_id === selectedResultMeetingId);
+    return [...playersByMemberId.entries()]
+      .map(([memberId, playerRows]) => {
+        const memberMatches = playerRows
+          .map((player) => ({ player, match: selectedMatchById.get(player.match_id) }))
+          .filter((row): row is { player: MatchPlayer; match: Match } => Boolean(row.match))
+          .sort((a, b) => {
+            const left = new Date(a.match.started_at ?? a.match.created_at).getTime();
+            const right = new Date(b.match.started_at ?? b.match.created_at).getTime();
+            return left - right;
+          });
+        const memberAttendances = selectedAttendances
+          .filter((attendance) => attendance.member_id === memberId)
+          .sort((a, b) => a.checked_in_at.localeCompare(b.checked_in_at));
+        const matchResults = memberMatches.map(({ player, match }) => {
+          const isDraw = match.team_a_score === match.team_b_score;
+          const winner = isDraw
+            ? null
+            : match.winner_team ?? ((match.team_a_score ?? 0) > (match.team_b_score ?? 0) ? "A" : "B");
+
+          return {
+            matchId: match.id,
+            roundNumber: match.round_number,
+            courtNumber: match.court_number,
+            result: (isDraw ? "무" : player.team === winner ? "승" : "패") as "승" | "무" | "패",
+            score:
+              player.team === "A"
+                ? `${match.team_a_score} : ${match.team_b_score}`
+                : `${match.team_b_score} : ${match.team_a_score}`
+          };
+        });
+        const wins = matchResults.filter((row) => row.result === "승").length;
+        const draws = matchResults.filter((row) => row.result === "무").length;
+        const losses = matchResults.filter((row) => row.result === "패").length;
+        const playingMilliseconds = memberMatches.reduce((sum, { match }) => {
+          if (!match.started_at || !match.ended_at) return sum;
+          return sum + Math.max(0, new Date(match.ended_at).getTime() - new Date(match.started_at).getTime());
+        }, 0);
+        const lastMatchStartedAt = memberMatches.reduce(
+          (latest, { match }) => Math.max(latest, new Date(match.started_at ?? match.created_at).getTime()),
+          0
+        );
+        const lastMatchEndedAt = memberMatches.at(-1)?.match.ended_at ?? null;
+        const firstCheckedInAt = memberAttendances[0]?.checked_in_at ?? null;
+        const attendanceMilliseconds =
+          firstCheckedInAt && lastMatchEndedAt
+            ? Math.max(0, new Date(lastMatchEndedAt).getTime() - new Date(firstCheckedInAt).getTime())
+            : null;
+        const attendanceBeforeLastMatch = memberAttendances.reduce((sum, attendance) => {
+          const startedAt = new Date(attendance.checked_in_at).getTime();
+          const endedAt = Math.min(
+            lastMatchStartedAt,
+            attendance.checked_out_at ? new Date(attendance.checked_out_at).getTime() : lastMatchStartedAt
+          );
+          return sum + Math.max(0, endedAt - startedAt);
+        }, 0);
+        const playBeforeLastMatch = memberMatches.reduce((sum, { match }) => {
+          if (!match.started_at || !match.ended_at) return sum;
+          const startedAt = new Date(match.started_at).getTime();
+          if (startedAt >= lastMatchStartedAt) return sum;
+          const endedAt = Math.min(lastMatchStartedAt, new Date(match.ended_at).getTime());
+          return sum + Math.max(0, endedAt - startedAt);
+        }, 0);
+
+        return {
+          memberId,
+          name: profileById.get(memberId)?.display_name ?? "알 수 없음",
+          games: memberMatches.length,
+          wins,
+          draws,
+          losses,
+          points: wins * 2 + draws,
+          attendanceCount: memberAttendances.length,
+          checkedInAt: firstCheckedInAt,
+          checkedOutAt: lastMatchEndedAt,
+          attendanceMinutes: attendanceMilliseconds === null ? null : durationMinutes(attendanceMilliseconds),
+          playingMinutes: durationMinutes(playingMilliseconds),
+          waitingMinutes: memberAttendances.length
+            ? durationMinutes(Math.max(0, attendanceBeforeLastMatch - playBeforeLastMatch))
+            : null,
+          matchResults
+        };
+      })
+      .sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.games !== a.games) return b.games - a.games;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return a.name.localeCompare(b.name, "ko");
+      });
+  }, [attendances, matchPlayers, profileById, resultMatches, selectedResultMeetingId]);
   const allFinishedMatches = useMemo(
     () =>
       matches
@@ -2413,6 +2552,14 @@ export function Am5App() {
                 <p className="eyebrow">공용 조회</p>
                 <h1>모임 결과</h1>
               </div>
+              <div className="segmented result-view-switch" aria-label="결과 보기 방식">
+                <button className={resultView === "matches" ? "active" : ""} type="button" onClick={() => setResultView("matches")}>
+                  경기별
+                </button>
+                <button className={resultView === "players" ? "active" : ""} type="button" onClick={() => setResultView("players")}>
+                  선수별
+                </button>
+              </div>
             </div>
 
             <section className="panel">
@@ -2435,9 +2582,11 @@ export function Am5App() {
             <section className="panel">
               <div className="section-head">
                 <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
-                <span className="count-chip">{resultMatches.length}</span>
+                <span className="count-chip">
+                  {resultView === "matches" ? `${resultMatches.length}경기` : `${playerMeetingResults.length}명`}
+                </span>
               </div>
-              {resultMatches.length ? (
+              {resultView === "matches" ? resultMatches.length ? (
                 <div className="match-list">
                   {resultMatches.map((match) => {
                     const teamA = matchTeam(match.id, "A");
@@ -2506,6 +2655,63 @@ export function Am5App() {
                 </div>
               ) : (
                 <p className="empty">선택한 날짜에 기록된 경기 결과가 없습니다.</p>
+              ) : playerMeetingResults.length ? (
+                <div className="player-result-list">
+                  {playerMeetingResults.map((row) => (
+                    <article className="player-result-card" key={row.memberId}>
+                      <div className="player-result-head">
+                        <div>
+                          <h3>{row.name}</h3>
+                          <p>
+                            {row.games}전 {row.wins}승 {row.draws}무 {row.losses}패
+                          </p>
+                        </div>
+                        <strong className="player-result-rate">
+                          {row.games ? formatRate((row.points / (row.games * 2)) * 100) : "-"}
+                        </strong>
+                      </div>
+
+                      <div className="player-result-matches" aria-label={`${row.name} 경기별 결과`}>
+                        {row.matchResults.map((matchResult) => (
+                          <span
+                            className={classNames("player-result-badge", `result-${matchResult.result}`)}
+                            key={matchResult.matchId}
+                          >
+                            {matchResult.roundNumber}R · 코트 {courtName(matchResult.courtNumber)} · {matchResult.score} · {matchResult.result}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="player-time-grid">
+                        <div>
+                          <span>총게임수</span>
+                          <strong>{row.games}경기</strong>
+                        </div>
+                        <div>
+                          <span>출석시간</span>
+                          <strong>{formatDuration(row.attendanceMinutes)}</strong>
+                        </div>
+                        <div>
+                          <span>실제 경기시간</span>
+                          <strong>{formatDuration(row.playingMinutes)}</strong>
+                        </div>
+                        <div>
+                          <span>대기시간</span>
+                          <strong>{formatDuration(row.waitingMinutes)}</strong>
+                        </div>
+                      </div>
+
+                      <div className="player-attendance-meta">
+                        <span>입장 {formatTime(row.checkedInAt)}</span>
+                        <span>퇴장 {row.checkedOutAt ? formatTime(row.checkedOutAt) : "기록 없음"}</span>
+                        {row.attendanceCount > 1 && <span>{row.attendanceCount}회 출석</span>}
+                      </div>
+                    </article>
+                  ))}
+                  <p className="helper-text">대기시간은 출석 후 마지막 경기 시작 직전까지의 체류시간에서 이전 경기 진행시간을 제외한 값입니다.</p>
+                </div>
+              ) : (
+                <p className="empty">선택한 날짜에 기록된 선수별 결과가 없습니다.</p>
               )}
             </section>
           </div>

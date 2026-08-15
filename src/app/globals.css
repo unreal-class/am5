@@ -199,6 +199,15 @@ code {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.segmented.result-view-switch {
+  width: 184px;
+  flex: 0 0 184px;
+}
+
+.segmented.result-view-switch button {
+  min-height: 38px;
+}
+
 .segmented button {
   min-height: 42px;
   border: 0;
@@ -678,11 +687,106 @@ code {
 
 .ranking-list,
 .match-list,
+.player-result-list,
 .attendance-list,
 .member-list,
 .record-table {
   display: grid;
   gap: 10px;
+}
+
+.player-result-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.player-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.player-result-head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.player-result-rate {
+  color: var(--primary-dark);
+  font-size: 1.12rem;
+}
+
+.player-result-matches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.player-result-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  background: #eef0ec;
+  padding: 4px 9px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.player-result-badge.result-승 {
+  background: #e9f2ee;
+  color: var(--primary-dark);
+}
+
+.player-result-badge.result-무 {
+  background: #fff0cf;
+  color: #7a4d00;
+}
+
+.player-result-badge.result-패 {
+  background: #fff2ed;
+  color: #9b3d22;
+}
+
+.player-time-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.player-time-grid > div {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 10px;
+}
+
+.player-time-grid span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.player-time-grid strong {
+  font-size: 0.92rem;
+}
+
+.player-attendance-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .ranking-row,
@@ -981,5 +1085,14 @@ code {
   .member-status-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .player-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .segmented.result-view-switch {
+    width: 156px;
+    flex-basis: 156px;
   }
 }
