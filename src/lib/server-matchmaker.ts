@@ -106,12 +106,14 @@ export async function checkoutMemberAndReassign({
   admin,
   meetingId,
   memberId,
-  currentUserId
+  currentUserId,
+  confirmCancelActiveMatch
 }: {
   admin: SupabaseClient;
   meetingId: string;
   memberId: string;
   currentUserId: string;
+  confirmCancelActiveMatch: boolean;
 }): Promise<CheckoutReassignResult> {
   const { data: activeAttendance, error: activeAttendanceError } = await admin
     .from("attendances")
@@ -156,6 +158,10 @@ export async function checkoutMemberAndReassign({
 
     const memberActivePlayers = (activePlayers ?? []) as Pick<MatchPlayer, "match_id">[];
     canceledMatchIds = Array.from(new Set(memberActivePlayers.map((player) => player.match_id)));
+  }
+
+  if (canceledMatchIds.length > 0 && !confirmCancelActiveMatch) {
+    throw new Error("진행 중이거나 배정된 경기가 있습니다. 경기 취소에 동의한 후 다시 퇴장해주세요.");
   }
 
   if (canceledMatchIds.length > 0) {

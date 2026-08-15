@@ -181,6 +181,13 @@ function bestGroup(
   opponentCounts: Map<string, number>
 ) {
   const minGames = Math.min(...candidates.map((candidate) => candidate.todayGames));
+
+  if (minGames >= 3) {
+    return [...candidates]
+      .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt) || a.profile.id.localeCompare(b.profile.id))
+      .slice(0, 4);
+  }
+
   const lowestGameCandidates = candidates.filter((candidate) => candidate.todayGames === minGames);
   const required = [...lowestGameCandidates]
     .sort((a, b) => {

@@ -1469,6 +1469,10 @@ export function Am5App() {
     ),
     [todayMatches]
   );
+  const hasInProgressMatch = useMemo(
+    () => todayMatches.some((match) => match.status === "in_progress"),
+    [todayMatches]
+  );
   const availableCourtsNowCount = useMemo(
     () => availableCourtNumbers.filter((num) => !occupiedCourtNumbers.has(num)).length,
     [availableCourtNumbers, occupiedCourtNumbers]
@@ -1771,14 +1775,18 @@ export function Am5App() {
 
     setConfirmDialog({
       title: isInProgress ? "현재 경기 중인데도 퇴장하시겠습니까?" : assignedMatch ? "배정된 경기를 취소하고 퇴장하시겠습니까?" : "정말 퇴장하시겠습니까?",
-      message: assignedMatch ? "확인하면 배정된 경기 자체가 취소되고 퇴장 처리됩니다." : "",
-      confirmLabel: isInProgress || assignedMatch ? "그래도 퇴장" : "확인",
+      message: isInProgress
+        ? "확인하면 현재 진행 중인 경기 전체가 취소되고, 함께 경기 중인 선수들도 다시 배정 대상이 됩니다."
+        : assignedMatch
+          ? "확인하면 배정된 경기 전체가 취소되고 퇴장 처리됩니다."
+          : "",
+      confirmLabel: isInProgress ? "경기 취소 후 퇴장" : assignedMatch ? "배정 취소 후 퇴장" : "확인",
       onConfirm: async () => {
         setBusy(true);
         try {
           const body = await memberFetch("/api/member/check-out", {
             method: "POST",
-            body: JSON.stringify({ meetingDate: today })
+            body: JSON.stringify({ meetingDate: today, confirmCancelActiveMatch: Boolean(assignedMatch) })
           });
           await loadData();
           showToast(checkoutToastMessage("퇴장 처리했습니다.", body));
@@ -1810,14 +1818,18 @@ export function Am5App() {
     if (action === "check-out") {
       setConfirmDialog({
         title: isInProgress ? `${member.display_name}님은 현재 경기 중입니다. 그래도 퇴장시키시겠습니까?` : assignedMatch ? `${member.display_name}님의 배정 경기를 취소하고 퇴장시키시겠습니까?` : `${member.display_name}님을 퇴장시키시겠습니까?`,
-        message: assignedMatch ? "확인하면 배정된 경기 자체가 취소되고 퇴장 처리됩니다." : "",
-        confirmLabel: isInProgress || assignedMatch ? "그래도 퇴장" : "확인",
+        message: isInProgress
+          ? "확인하면 현재 진행 중인 경기 전체가 취소되고, 함께 경기 중인 선수들도 다시 배정 대상이 됩니다."
+          : assignedMatch
+            ? "확인하면 배정된 경기 전체가 취소되고 퇴장 처리됩니다."
+            : "",
+        confirmLabel: isInProgress ? "경기 취소 후 퇴장" : assignedMatch ? "배정 취소 후 퇴장" : "확인",
         onConfirm: async () => {
           setBusy(true);
           try {
             const body = await adminFetch(`/api/admin/members/${member.id}/attendance`, {
               method: "POST",
-              body: JSON.stringify({ action, meetingDate: today })
+              body: JSON.stringify({ action, meetingDate: today, confirmCancelActiveMatch: Boolean(assignedMatch) })
             });
             await loadData();
             showToast(checkoutToastMessage(`${member.display_name}님을 퇴장 처리했습니다.`, body));
@@ -2528,7 +2540,9 @@ export function Am5App() {
               <section className="today-focus-panel">
                 <p className="eyebrow">{formatDate(today)}</p>
                 <h1>대기 중입니다</h1>
-                {waitingPresentCount < 4 ? (
+                {hasInProgressMatch ? (
+                  <h1>현재 모든 코트에서 경기 중입니다</h1>
+                ) : waitingPresentCount < 4 ? (
                   <h1>아직 {4 - waitingPresentCount}명이 부족해 경기를 배정할 수 없습니다. 빨리 오라고 독촉하세요!!</h1>
                 ) : availableCourtsNowCount === 0 ? (
                   <h1>현재 모든 코트에서 경기 중입니다</h1>

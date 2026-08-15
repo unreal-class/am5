@@ -17,6 +17,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const body = await request.json().catch(() => ({}));
   const action = String(body.action ?? "");
   const meetingDate = String(body.meetingDate ?? "");
+  const confirmCancelActiveMatch = body.confirmCancelActiveMatch === true;
 
   if (!id) {
     return NextResponse.json({ message: "회원 ID가 필요합니다." }, { status: 400 });
@@ -60,7 +61,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         admin: gate.admin,
         meetingId: meeting.id,
         memberId: id,
-        currentUserId: id
+        currentUserId: id,
+        confirmCancelActiveMatch
       });
 
       return NextResponse.json({ ok: true, ...result });
