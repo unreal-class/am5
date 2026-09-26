@@ -13,6 +13,7 @@ import {
   Play,
   RotateCcw,
   Save,
+  Settings2,
   Shield,
   StopCircle,
   Trash2,
@@ -56,7 +57,7 @@ import {
 import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "test" | "courts";
+type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "operations" | "test" | "courts";
 type ResultView = "matches" | "players";
 type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role"> & { seed_win_rate: number | string };
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
@@ -1892,6 +1893,74 @@ export function Am5App() {
     }, "대진표를 생성했습니다.");
   }
 
+  async function runReassignment() {
+    if (!todayMeeting) return;
+    setBusy(true);
+    try {
+      const body = await adminFetch("/api/admin/operations", {
+        method: "POST",
+        body: JSON.stringify({ meetingId: todayMeeting.id, operation: "reassign" })
+      });
+      await loadData();
+      const count = body.assignedMatches?.length ?? 0;
+      showToast(count > 0 ? `충원 또는 신규 대진 ${count}건을 재배정했습니다.` : "현재 추가로 배정할 대상이 없습니다.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "재배정에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetAndReassign() {
+    if (!todayMeeting) return;
+    setConfirmDialog({
+      title: "현재 경기를 모두 중단하고 다시 배정하시겠습니까?",
+      message: "예정 및 진행 중인 경기 기록은 삭제됩니다. 완료된 경기 결과와 현재 출석자는 유지하고, 가용 코트와 배정 규칙에 따라 새 대진을 만듭니다.",
+      confirmLabel: "전체 중단 후 재배정",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          const body = await adminFetch("/api/admin/operations", {
+            method: "POST",
+            body: JSON.stringify({ meetingId: todayMeeting.id, operation: "reset-and-reassign" })
+          });
+          await loadData();
+          showToast(body.assignmentWarning
+            ? `경기 ${body.stoppedMatchCount ?? 0}건을 중단했습니다. 새 배정 보류: ${body.assignmentWarning} 경기 운영에서 재배정을 다시 실행해주세요.`
+            : `경기 ${body.stoppedMatchCount ?? 0}건을 중단하고 새 대진 ${body.assignedMatches?.length ?? 0}건을 배정했습니다.`);
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "전체 재배정에 실패했습니다.");
+        } finally {
+          setBusy(false);
+        }
+      }
+    });
+  }
+
+  function closeTodayMeeting() {
+    if (!todayMeeting) return;
+    setConfirmDialog({
+      title: "오늘 모임을 종료하시겠습니까?",
+      message: `예정 및 진행 중인 경기를 모두 중단하고 현재 출석자 ${todayActiveAttendanceByMemberId.size}명을 전원 퇴장 처리합니다. 완료된 경기 결과는 유지됩니다.`,
+      confirmLabel: "모임 종료 및 전원 퇴장",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          const body = await adminFetch("/api/admin/operations", {
+            method: "POST",
+            body: JSON.stringify({ meetingId: todayMeeting.id, operation: "close-meeting" })
+          });
+          await loadData();
+          showToast(`오늘 모임을 종료했습니다. 경기 ${body.stoppedMatchCount ?? 0}건 중단, ${body.checkedOutCount ?? 0}명 퇴장 처리했습니다.`);
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "모임 종료에 실패했습니다.");
+        } finally {
+          setBusy(false);
+        }
+      }
+    });
+  }
+
   async function finishMatch(match: Match) {
     setConfirmDialog({
       title: "정말 경기를 종료하시겠습니까?",
@@ -2498,6 +2567,9 @@ export function Am5App() {
               <button className={classNames("icon-button", tab === "monitor" && "active")} title="현황" type="button" onClick={() => setTab("monitor")}>
                 <Activity size={19} />
               </button>
+              <button className={classNames("icon-button", tab === "operations" && "active")} title="경기 운영" type="button" onClick={() => setTab("operations")}>
+                <Settings2 size={19} />
+              </button>
               <button className={classNames("icon-button", tab === "courts" && "active")} title="코트" type="button" onClick={() => setTab("courts")}>
                 <Medal size={19} />
               </button>
@@ -3012,6 +3084,59 @@ export function Am5App() {
                   </div>
                 )}
               </div>
+            </section>
+          </div>
+        )}
+
+        {tab === "operations" && isAdmin && (
+          <div className="screen">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">관리자</p>
+                <h1>경기 운영</h1>
+              </div>
+              <span className={classNames("status-pill", todayMeeting?.status === "active" && "in_progress")}>
+                {todayMeeting?.status === "active" ? "모임 진행 중" : todayMeeting ? "모임 종료" : "모임 없음"}
+              </span>
+            </div>
+
+            <div className="summary-grid">
+              <div className="metric"><span>현재 출석</span><strong>{todayActiveAttendanceByMemberId.size}명</strong></div>
+              <div className="metric"><span>예정·진행 경기</span><strong>{todayMatches.filter((match) => match.status === "scheduled" || match.status === "in_progress").length}건</strong></div>
+              <div className="metric"><span>현재 대기</span><strong>{waitingPresentCount}명</strong></div>
+            </div>
+
+            <section className="panel">
+              <div>
+                <h2>대기 인원 재배정</h2>
+                <p className="muted">현재 경기는 그대로 유지하고 충원 대기 자리와 아직 경기 중이 아닌 출석자를 다시 배정합니다.</p>
+              </div>
+              <button className="full-button primary" disabled={busy || todayMeeting?.status !== "active"} type="button" onClick={runReassignment}>
+                <ClipboardList size={18} />
+                재배정 실행
+              </button>
+            </section>
+
+            <section className="panel">
+              <div>
+                <h2>현재 경기 전체 중단 후 재배정</h2>
+                <p className="muted">배정 오류를 복구할 때 사용합니다. 예정·진행 경기를 제거한 뒤 현재 출석자 기준으로 전체 대진을 다시 만듭니다.</p>
+              </div>
+              <button className="full-button danger" disabled={busy || todayMeeting?.status !== "active"} type="button" onClick={resetAndReassign}>
+                <RotateCcw size={18} />
+                전체 중단 후 재배정
+              </button>
+            </section>
+
+            <section className="panel">
+              <div>
+                <h2>당일 모임 종료</h2>
+                <p className="muted">예정·진행 경기를 중단하고 현재 출석 중인 모든 참여자를 퇴장 처리합니다. 완료된 경기 결과는 유지됩니다.</p>
+              </div>
+              <button className="full-button danger" disabled={busy || todayMeeting?.status !== "active"} type="button" onClick={closeTodayMeeting}>
+                <StopCircle size={18} />
+                모임 종료 및 전원 퇴장
+              </button>
             </section>
           </div>
         )}

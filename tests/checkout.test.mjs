@@ -8,6 +8,7 @@ const { autoAssignMatches, checkoutMemberAndReassign } = await import("../src/li
 const uuid = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 const migration = readFileSync(new URL("../supabase/migrations/202609270001_preserve_match_on_checkout.sql", import.meta.url), "utf8");
 const reconfigureMigration = readFileSync(new URL("../supabase/migrations/202609270002_reconfigure_match_teams.sql", import.meta.url), "utf8");
+const operationsMigration = readFileSync(new URL("../supabase/migrations/202609270003_admin_match_operations.sql", import.meta.url), "utf8");
 
 // Exercise the actual server orchestration and migration against PostgreSQL.
 // This adapter implements only the Supabase query interface used by this module.
@@ -58,7 +59,7 @@ async function setup(t, memberCount = 5) {
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
     create table profiles (id uuid primary key, display_name text, gender text default 'male', is_guest boolean default true, seed_win_rate float default 50);
-    create table meetings (id uuid primary key, meeting_date date default current_date);
+    create table meetings (id uuid primary key, meeting_date date default current_date, status text default 'active');
     create table attendances (id uuid primary key default gen_random_uuid(), meeting_id uuid, member_id uuid, checked_in_at timestamptz default now(), checked_out_at timestamptz);
     create table courts (court_number integer primary key, is_available boolean default true);
     create table matches (id uuid primary key default gen_random_uuid(), meeting_id uuid, court_number integer, round_number integer, status text,
@@ -72,6 +73,7 @@ async function setup(t, memberCount = 5) {
   `);
   await db.exec(migration);
   await db.exec(reconfigureMigration);
+  await db.exec(operationsMigration);
   for (let i = 1; i <= memberCount; i++) {
     await db.query("insert into profiles(id, display_name) values ($1, $2)", [uuid(i), `Member ${i}`]);
     await db.query("insert into attendances(meeting_id, member_id, checked_in_at) values ($1, $2, now() - interval '1 hour' + $3 * interval '1 minute')", [uuid(100), uuid(i), i]);
@@ -250,4 +252,52 @@ test("team reconfiguration rejects an incomplete, ended, or scored match", async
   assert.match((await reconfigure()).error.message, /진행 전이거나 진행 중/);
   await db.query("update matches set ended_at = null, team_a_score = 6, team_b_score = 4 where id = $1", [uuid(200)]);
   assert.match((await reconfigure()).error.message, /진행 전이거나 진행 중/);
+});
+
+test("assignment reset deletes only active matches and preserves attendance and results", async (t) => {
+  const { db, admin } = await setup(t, 4);
+  await db.query(`insert into matches(id, meeting_id, court_number, round_number, status, started_at, ended_at, team_a_score, team_b_score)
+    values ($1, $2, 2, 1, 'finished', now() - interval '1 hour', now(), 6, 4)`, [uuid(201), uuid(100)]);
+  const result = await admin.rpc("reset_meeting_assignments", { p_meeting_id: uuid(100) });
+  assert.equal(result.error, null);
+  assert.equal(result.data.stoppedMatchCount, 1);
+  assert.deepEqual((await db.query("select id, status from matches order by id")).rows, [{ id: uuid(201), status: "finished" }]);
+  assert.equal((await db.query("select count(*) from attendances where checked_out_at is null")).rows[0].count, 4);
+  assert.equal((await db.query("select status from meetings where id = $1", [uuid(100)])).rows[0].status, "active");
+});
+
+test("closing a meeting stops active matches, checks everyone out, and preserves results", async (t) => {
+  const { db, admin } = await setup(t, 4);
+  await db.query(`insert into matches(id, meeting_id, court_number, round_number, status, started_at, ended_at, team_a_score, team_b_score)
+    values ($1, $2, 2, 1, 'finished', now() - interval '1 hour', now(), 6, 4)`, [uuid(201), uuid(100)]);
+  const result = await admin.rpc("close_meeting_operations", { p_meeting_id: uuid(100) });
+  assert.equal(result.error, null);
+  assert.equal(result.data.stoppedMatchCount, 1);
+  assert.equal(result.data.checkedOutCount, 4);
+  assert.deepEqual((await db.query("select id, status from matches order by id")).rows, [{ id: uuid(201), status: "finished" }]);
+  assert.equal((await db.query("select count(*) from attendances where checked_out_at is null")).rows[0].count, 0);
+  assert.equal((await db.query("select status from meetings where id = $1", [uuid(100)])).rows[0].status, "closed");
+});
+
+test("meeting close rolls back all changes if checkout fails", async (t) => {
+  const { db, admin, roster } = await setup(t, 4);
+  await db.exec(`create function reject_bulk_checkout() returns trigger language plpgsql as $$
+    begin raise exception 'simulated close failure'; end; $$;
+    create trigger reject_bulk_checkout before update on attendances for each row execute function reject_bulk_checkout();`);
+  const beforeRoster = await roster();
+  const result = await admin.rpc("close_meeting_operations", { p_meeting_id: uuid(100) });
+  assert.match(result.error.message, /simulated close failure/);
+  assert.deepEqual(await roster(), beforeRoster);
+  assert.equal((await db.query("select status from meetings where id = $1", [uuid(100)])).rows[0].status, "active");
+  assert.equal((await db.query("select count(*) from attendances where checked_out_at is null")).rows[0].count, 4);
+});
+
+test("administrative operation RPCs are restricted to the service role", async (t) => {
+  const { db } = await setup(t);
+  const { rows } = await db.query(`select
+    has_function_privilege('authenticated', 'reset_meeting_assignments(uuid)', 'EXECUTE') as user_reset,
+    has_function_privilege('authenticated', 'close_meeting_operations(uuid)', 'EXECUTE') as user_close,
+    has_function_privilege('service_role', 'reset_meeting_assignments(uuid)', 'EXECUTE') as server_reset,
+    has_function_privilege('service_role', 'close_meeting_operations(uuid)', 'EXECUTE') as server_close`);
+  assert.deepEqual(rows[0], { user_reset: false, user_close: false, server_reset: true, server_close: true });
 });
