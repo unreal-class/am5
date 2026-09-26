@@ -53,7 +53,6 @@ import {
   type Role,
   type Team
 } from "@/lib/models";
-import { generateMatches } from "@/lib/scheduler";
 import { buildStats, getRankings } from "@/lib/stats";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
@@ -1682,12 +1681,11 @@ export function Am5App() {
         return;
       }
 
-      const nextAvailableCourtNumbers = Array.from(new Set([...availableCourtNumbers, court.court_number]));
-      const generatedCount = await createMatchesForCourts(nextAvailableCourtNumbers, false);
+      const generatedCount = await assignWaitingMembers(false);
 
       showToast(
         generatedCount > 0
-          ? `코트 ${courtName(court.court_number)} 대여를 시작하고 대진 ${generatedCount}건을 생성했습니다.`
+          ? `코트 ${courtName(court.court_number)} 대여를 시작하고 충원 또는 신규 배정 ${generatedCount}건을 처리했습니다.`
           : `코트 ${courtName(court.court_number)} 대여를 시작했습니다.`
       );
     });
@@ -1729,7 +1727,7 @@ export function Am5App() {
       } else if (myMatch) {
         showToast(`출석했습니다. 코트 ${myMatch.courtName}에 배정되었습니다.`);
       } else if (assignedMatches.length > 0) {
-        showToast(`출석했습니다. 새 대진 ${assignedMatches.length}건이 생성되었습니다.`);
+        showToast(`출석했습니다. 충원 또는 신규 배정 ${assignedMatches.length}건을 처리했습니다.`);
       } else {
         showToast("출석했습니다.");
       }
@@ -1743,21 +1741,21 @@ export function Am5App() {
   function checkoutToastMessage(
     baseMessage: string,
     body: {
-      canceledMatchCount?: number;
+      waitingMatchCount?: number;
       assignedMatches?: Array<{ courtName: string; includesCurrentUser: boolean }>;
       assignmentWarning?: string | null;
     }
   ) {
-    const canceledMatchCount = Number(body.canceledMatchCount ?? 0);
+    const waitingMatchCount = Number(body.waitingMatchCount ?? 0);
     const assignedMatches = body.assignedMatches ?? [];
     const details: string[] = [];
 
-    if (canceledMatchCount > 0) {
-      details.push(`배정 경기 ${canceledMatchCount}건을 취소했습니다.`);
+    if (waitingMatchCount > 0) {
+      details.push(`기존 참여자를 유지한 경기 ${waitingMatchCount}건이 충원 대기 중입니다.`);
     }
 
     if (assignedMatches.length > 0) {
-      details.push(`다른 멤버 대진 ${assignedMatches.length}건을 새로 생성했습니다.`);
+      details.push(`충원 또는 신규 배정 ${assignedMatches.length}건을 처리했습니다.`);
     }
 
     if (body.assignmentWarning) {
@@ -1775,19 +1773,19 @@ export function Am5App() {
     const isInProgress = assignedMatch?.status === "in_progress";
 
     setConfirmDialog({
-      title: isInProgress ? "현재 경기 중인데도 퇴장하시겠습니까?" : assignedMatch ? "배정된 경기를 취소하고 퇴장하시겠습니까?" : "정말 퇴장하시겠습니까?",
+      title: isInProgress ? "현재 경기 중인데도 퇴장하시겠습니까?" : assignedMatch ? "대체 선수를 배정하고 퇴장하시겠습니까?" : "정말 퇴장하시겠습니까?",
       message: isInProgress
-        ? "확인하면 현재 진행 중인 경기 전체가 취소되고, 함께 경기 중인 선수들도 다시 배정 대상이 됩니다."
+        ? "나머지 참여자와 팀은 유지하고 빈자리에 대기 선수를 배정합니다. 대체 인원이 없으면 퇴장 처리 후 충원 대기합니다."
         : assignedMatch
-          ? "확인하면 배정된 경기 전체가 취소되고 퇴장 처리됩니다."
+          ? "나머지 참여자와 팀은 유지하고 빈자리에 대기 선수를 배정합니다. 대체 인원이 없으면 퇴장 처리 후 충원 대기합니다."
           : "",
-      confirmLabel: isInProgress ? "경기 취소 후 퇴장" : assignedMatch ? "배정 취소 후 퇴장" : "확인",
+      confirmLabel: assignedMatch ? "퇴장 및 대체 배정" : "확인",
       onConfirm: async () => {
         setBusy(true);
         try {
           const body = await memberFetch("/api/member/check-out", {
             method: "POST",
-            body: JSON.stringify({ meetingDate: today, confirmCancelActiveMatch: Boolean(assignedMatch) })
+            body: JSON.stringify({ meetingDate: today, confirmReplaceActiveMatch: Boolean(assignedMatch) })
           });
           await loadData();
           showToast(checkoutToastMessage("퇴장 처리했습니다.", body));
@@ -1818,19 +1816,19 @@ export function Am5App() {
 
     if (action === "check-out") {
       setConfirmDialog({
-        title: isInProgress ? `${member.display_name}님은 현재 경기 중입니다. 그래도 퇴장시키시겠습니까?` : assignedMatch ? `${member.display_name}님의 배정 경기를 취소하고 퇴장시키시겠습니까?` : `${member.display_name}님을 퇴장시키시겠습니까?`,
+        title: isInProgress ? `${member.display_name}님은 현재 경기 중입니다. 그래도 퇴장시키시겠습니까?` : assignedMatch ? `${member.display_name}님의 자리에 대체 선수를 배정하고 퇴장시키시겠습니까?` : `${member.display_name}님을 퇴장시키시겠습니까?`,
         message: isInProgress
-          ? "확인하면 현재 진행 중인 경기 전체가 취소되고, 함께 경기 중인 선수들도 다시 배정 대상이 됩니다."
+          ? "나머지 참여자와 팀은 유지하고 빈자리에 대기 선수를 배정합니다. 대체 인원이 없으면 퇴장 처리 후 충원 대기합니다."
           : assignedMatch
-            ? "확인하면 배정된 경기 전체가 취소되고 퇴장 처리됩니다."
+            ? "나머지 참여자와 팀은 유지하고 빈자리에 대기 선수를 배정합니다. 대체 인원이 없으면 퇴장 처리 후 충원 대기합니다."
             : "",
-        confirmLabel: isInProgress ? "경기 취소 후 퇴장" : assignedMatch ? "배정 취소 후 퇴장" : "확인",
+        confirmLabel: assignedMatch ? "퇴장 및 대체 배정" : "확인",
         onConfirm: async () => {
           setBusy(true);
           try {
             const body = await adminFetch(`/api/admin/members/${member.id}/attendance`, {
               method: "POST",
-              body: JSON.stringify({ action, meetingDate: today, confirmCancelActiveMatch: Boolean(assignedMatch) })
+              body: JSON.stringify({ action, meetingDate: today, confirmReplaceActiveMatch: Boolean(assignedMatch) })
             });
             await loadData();
             showToast(checkoutToastMessage(`${member.display_name}님을 퇴장 처리했습니다.`, body));
@@ -1863,7 +1861,7 @@ export function Am5App() {
       } else if (memberMatch) {
         showToast(`${member.display_name}님을 출석 처리했습니다. 코트 ${memberMatch.courtName}에 배정됐습니다.`);
       } else if (assignedMatches.length > 0) {
-        showToast(`${member.display_name}님을 출석 처리했습니다. 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
+        showToast(`${member.display_name}님을 출석 처리했습니다. 충원 또는 신규 배정 ${assignedMatches.length}건을 처리했습니다.`);
       } else {
         showToast(`${member.display_name}님을 출석 처리했습니다.`);
       }
@@ -1874,63 +1872,23 @@ export function Am5App() {
     }
   }
 
-  async function createMatchesForCourts(courtNumbers: number[], requireGenerated: boolean) {
+  async function assignWaitingMembers(requireGenerated: boolean) {
     if (!todayMeeting) return 0;
-
-    if (courtNumbers.length === 0) {
-      if (requireGenerated) {
-        throw new Error("현재 대여 시작된 가용 코트가 없습니다.");
-      }
-      return 0;
-    }
-
-    const generated = generateMatches({
-      meetingId: todayMeeting.id,
-      profiles,
-      attendances: todayAttendances,
-      matches,
-      players: matchPlayers,
-      stats: statsAll,
-      availableCourts: courtNumbers
+    const body = await adminFetch("/api/admin/matches", {
+      method: "POST",
+      body: JSON.stringify({ meetingId: todayMeeting.id })
     });
-
-    if (generated.length === 0) {
-      if (requireGenerated) {
-        throw new Error("대진을 만들 수 있는 인원이 부족하거나 코트가 모두 사용 중입니다.");
-      }
-      return 0;
+    const count = body.assignedMatches?.length ?? 0;
+    if (!count && requireGenerated) {
+      throw new Error("충원 또는 새 대진에 배정할 대기 인원이 없거나 빈 가용 코트가 없습니다.");
     }
-
-    for (const generatedMatch of generated) {
-      const { data, error } = await supabase
-        .from("matches")
-        .insert({
-          meeting_id: todayMeeting.id,
-          court_number: generatedMatch.court_number,
-          round_number: generatedMatch.round_number,
-          status: "in_progress",
-          started_at: new Date().toISOString()
-        })
-        .select("id")
-        .single();
-
-      if (error || !data) throw error ?? new Error("경기 생성에 실패했습니다.");
-
-      const rows = [
-        ...generatedMatch.teamA.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "A" as Team })),
-        ...generatedMatch.teamB.map((memberId) => ({ match_id: data.id, member_id: memberId, team: "B" as Team }))
-      ];
-      const { error: playerError } = await supabase.from("match_players").insert(rows);
-      if (playerError) throw playerError;
-    }
-
-    return generated.length;
+    return count;
   }
 
   async function createDraw() {
     if (!todayMeeting) return;
     await guarded(async () => {
-      await createMatchesForCourts(availableCourtNumbers, true);
+      await assignWaitingMembers(true);
     }, "대진표를 생성했습니다.");
   }
 
@@ -1948,6 +1906,22 @@ export function Am5App() {
         }, "경기를 종료했습니다.");
       }
     });
+  }
+
+  async function reconfigureMatch(match: Match) {
+    setBusy(true);
+    try {
+      const body = await memberFetch("/api/member/matches/reconfigure", {
+        method: "POST",
+        body: JSON.stringify({ matchId: match.id })
+      });
+      await loadData();
+      showToast(`팀 구성을 변경했습니다.${body.pairingNumber ? ` 현재 ${body.pairingNumber}번 조합입니다.` : ""}`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "팀 재구성에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveResult(match: Match, teamAScore: number, teamBScore: number, options: { autoAssign?: boolean } = {}) {
@@ -1973,7 +1947,7 @@ export function Am5App() {
       if (myMatch) {
         showToast(`결과를 저장했습니다. 다음 경기: 코트 ${myMatch.courtName}`);
       } else if (assignedMatches.length > 0) {
-        showToast(`결과를 저장했습니다. 새 대진 ${assignedMatches.length}건이 생성되었습니다.`);
+        showToast(`결과를 저장했습니다. 충원 또는 신규 배정 ${assignedMatches.length}건을 처리했습니다.`);
       } else {
         showToast("결과를 저장했습니다.");
       }
@@ -2057,7 +2031,7 @@ export function Am5App() {
       } else if (guestMatch) {
         showToast(`${attendanceMessage} 코트 ${guestMatch.courtName}에 배정됐습니다.`);
       } else if (assignedMatches.length > 0) {
-        showToast(`${attendanceMessage} 새 대진 ${assignedMatches.length}건이 생성됐습니다.`);
+        showToast(`${attendanceMessage} 충원 또는 신규 배정 ${assignedMatches.length}건을 처리했습니다.`);
       } else {
         showToast(attendanceMessage);
       }
@@ -2241,6 +2215,15 @@ export function Am5App() {
     });
   }
 
+  function isWaitingForPlayers(match: Match) {
+    return !match.ended_at && (match.status === "scheduled" || match.status === "in_progress") &&
+      (matchTeam(match.id, "A").length < 2 || matchTeam(match.id, "B").length < 2);
+  }
+
+  function currentMatchStatus(match: Match) {
+    return isWaitingForPlayers(match) ? "충원 대기" : matchDisplayStatus(match);
+  }
+
   function renderMatchCard(match: Match, includeTodayStats = false) {
     const teamA = matchTeam(match.id, "A");
     const teamB = matchTeam(match.id, "B");
@@ -2249,7 +2232,9 @@ export function Am5App() {
     const minutes = elapsedMinutes(match.started_at, match.ended_at);
     const mine = profile ? [...teamA, ...teamB].includes(profile.id) : false;
     const canManageMatch = isAdmin || mine;
-    const canFinishMatch = canManageMatch && isAssignedInProgress(match);
+    const canReconfigure = canManageMatch && isAssignedInProgress(match) && !isWaitingForPlayers(match) &&
+      match.team_a_score === null && match.team_b_score === null;
+    const canFinishMatch = canManageMatch && isAssignedInProgress(match) && !isWaitingForPlayers(match);
     const canRecordResult =
       canManageMatch &&
       Boolean(match.ended_at) &&
@@ -2260,9 +2245,9 @@ export function Am5App() {
         <div className="match-head">
           <div>
             <span className="court-name">코트 {courtName(match.court_number)}</span>
-            <h3>{matchDisplayStatus(match)}</h3>
+            <h3>{currentMatchStatus(match)}</h3>
           </div>
-          <span className={classNames("status-pill", matchStatusClass(match))}>{matchDisplayStatus(match)}</span>
+          <span className={classNames("status-pill", matchStatusClass(match))}>{currentMatchStatus(match)}</span>
         </div>
 
         <div className="teams">
@@ -2278,6 +2263,9 @@ export function Am5App() {
           </div>
         </div>
 
+        {isWaitingForPlayers(match) && (
+          <p className="muted">기존 참여자와 팀을 유지하며 {4 - teamA.length - teamB.length}명 충원 대기 중입니다.</p>
+        )}
         <div className="match-meta">
           <span>시작 {formatTime(match.started_at)}</span>
           <span>종료 {formatTime(match.ended_at)}</span>
@@ -2296,11 +2284,16 @@ export function Am5App() {
         {canManageMatch && (
           <>
             <div className="match-actions">
+              <button className="full-button" disabled={busy || !canReconfigure} type="button" onClick={() => reconfigureMatch(match)}>
+                <RotateCcw size={18} />
+                팀 재구성
+              </button>
               <button className="full-button danger" disabled={busy || !canFinishMatch} type="button" onClick={() => finishMatch(match)}>
                 <StopCircle size={18} />
                 종료
               </button>
             </div>
+            {canReconfigure && <p className="muted">누를 때마다 가능한 3개 팀 조합이 순환합니다. 원하는 구성에서 멈추면 그대로 확정됩니다.</p>}
             {canRecordResult && <ResultForm disabled={busy} match={match} onSave={saveResult} />}
           </>
         )}
@@ -3042,7 +3035,9 @@ export function Am5App() {
                   const match = row.inProgressMatch ?? row.nextScheduledMatch;
                   const teamA = match ? matchTeam(match.id, "A") : [];
                   const teamB = match ? matchTeam(match.id, "B") : [];
-                  const canFinish = Boolean(match && isAssignedInProgress(match));
+                  const canFinish = Boolean(match && isAssignedInProgress(match) && !isWaitingForPlayers(match));
+                  const canReconfigure = Boolean(match && isAssignedInProgress(match) && !isWaitingForPlayers(match) &&
+                    match.team_a_score === null && match.team_b_score === null);
                   const canRecordResult = Boolean(match && match.ended_at && match.team_a_score === null && match.team_b_score === null);
 
                   return (
@@ -3050,9 +3045,9 @@ export function Am5App() {
                       <div className="match-head">
                         <div>
                           <p className="court-name">코트 {courtName(row.courtNumber)}</p>
-                          <h3>{match ? "진행 중" : "배정 없음"}</h3>
+                          <h3>{match ? currentMatchStatus(match) : "배정 없음"}</h3>
                         </div>
-                        <span className={classNames("status-pill", match ? matchStatusClass(match) : undefined)}>{match ? matchDisplayStatus(match) : "비어 있음"}</span>
+                        <span className={classNames("status-pill", match ? matchStatusClass(match) : undefined)}>{match ? currentMatchStatus(match) : "비어 있음"}</span>
                       </div>
 
                       <div className="match-meta">
@@ -3080,6 +3075,10 @@ export function Am5App() {
                             <span>종료 {formatTime(match.ended_at)}</span>
                           </div>
                           <div className="match-actions">
+                            <button className="full-button" disabled={busy || !canReconfigure} type="button" onClick={() => reconfigureMatch(match)}>
+                              <RotateCcw size={18} />
+                              팀 재구성
+                            </button>
                             <button className="full-button danger" disabled={busy || !canFinish} type="button" onClick={() => finishMatch(match)}>
                               <StopCircle size={18} />
                               종료

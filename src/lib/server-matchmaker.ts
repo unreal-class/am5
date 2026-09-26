@@ -1,5 +1,5 @@
 import { courtName, type Attendance, type Court, type Match, type MatchPlayer, type Meeting, type Profile } from "@/lib/models";
-import { generateMatches } from "@/lib/scheduler";
+import { generateMatches, selectReplacement } from "@/lib/scheduler";
 import { buildStats } from "@/lib/stats";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -13,7 +13,7 @@ export type AssignedMatchSummary = {
 };
 
 export type CheckoutReassignResult = {
-  canceledMatchCount: number;
+  waitingMatchCount: number;
   assignedMatches: AssignedMatchSummary[];
   assignmentWarning: string | null;
 };
@@ -50,6 +50,39 @@ export async function autoAssignMatches({
   const courts = (courtsResult.data ?? []) as Court[];
   const stats = buildStats(profiles, meetings, matches, players, "all");
   const availableCourts = courts.filter((court) => court.is_available).map((court) => court.court_number);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const assignedMatches: AssignedMatchSummary[] = [];
+  // Preserve each existing team and fill vacancies before creating new games.
+  for (const match of matches
+    .filter((row) => row.meeting_id === meetingId && !row.ended_at && (row.status === "scheduled" || row.status === "in_progress"))
+    .sort((a, b) => a.round_number - b.round_number || a.court_number - b.court_number)) {
+    let filled = false;
+    for (const team of ["A", "B"] as const) {
+      while (players.filter((row) => row.match_id === match.id && row.team === team).length < 2) {
+        const replacementId = selectReplacement({
+          meetingId, profiles, attendances, matches, players, stats, matchId: match.id, vacantTeam: team
+        });
+        if (!replacementId) break;
+        const { data: player, error } = await admin.rpc("fill_match_vacancy", {
+          p_match_id: match.id, p_member_id: replacementId, p_team: team
+        });
+        if (error) throw new Error(error.message);
+        if (!player) throw new Error("경기 배정 상태가 변경되었습니다. 다시 시도해주세요.");
+        players.push(player as MatchPlayer);
+        filled = true;
+      }
+    }
+    if (filled) {
+      const teamA = players.filter((row) => row.match_id === match.id && row.team === "A").map((row) => row.member_id);
+      const teamB = players.filter((row) => row.match_id === match.id && row.team === "B").map((row) => row.member_id);
+      assignedMatches.push({
+        id: match.id, courtNumber: match.court_number, courtName: courtName(match.court_number),
+        teamA: teamA.map((id) => profileById.get(id)?.display_name ?? "알 수 없음"),
+        teamB: teamB.map((id) => profileById.get(id)?.display_name ?? "알 수 없음"),
+        includesCurrentUser: [...teamA, ...teamB].includes(currentUserId)
+      });
+    }
+  }
   const generated = generateMatches({
     meetingId,
     profiles,
@@ -59,9 +92,6 @@ export async function autoAssignMatches({
     stats,
     availableCourts
   });
-  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
-  const assignedMatches: AssignedMatchSummary[] = [];
-
   for (const generatedMatch of generated) {
     const { data: match, error: matchError } = await admin
       .from("matches")
@@ -107,102 +137,40 @@ export async function checkoutMemberAndReassign({
   meetingId,
   memberId,
   currentUserId,
-  confirmCancelActiveMatch
+  confirmReplaceActiveMatch
 }: {
   admin: SupabaseClient;
   meetingId: string;
   memberId: string;
   currentUserId: string;
-  confirmCancelActiveMatch: boolean;
+  confirmReplaceActiveMatch: boolean;
 }): Promise<CheckoutReassignResult> {
-  const { data: activeAttendance, error: activeAttendanceError } = await admin
-    .from("attendances")
-    .select("id")
-    .eq("meeting_id", meetingId)
-    .eq("member_id", memberId)
-    .is("checked_out_at", null)
-    .maybeSingle();
-
-  if (activeAttendanceError) {
-    throw new Error(activeAttendanceError.message);
-  }
-
-  if (!activeAttendance) {
-    throw new Error("출석 중인 회원이 아닙니다.");
-  }
-
-  const { data: activeMatches, error: activeMatchError } = await admin
-    .from("matches")
-    .select("id, status")
-    .eq("meeting_id", meetingId)
-    .in("status", ["scheduled", "in_progress"]);
-
-  if (activeMatchError) {
-    throw new Error(activeMatchError.message);
-  }
-
-  const matchById = new Map(((activeMatches ?? []) as Pick<Match, "id" | "status">[]).map((match) => [match.id, match]));
-  const activeMatchIds = Array.from(matchById.keys());
-  let canceledMatchIds: string[] = [];
-
-  if (activeMatchIds.length > 0) {
-    const { data: activePlayers, error: activePlayerError } = await admin
-      .from("match_players")
-      .select("match_id")
-      .eq("member_id", memberId)
-      .in("match_id", activeMatchIds);
-
-    if (activePlayerError) {
-      throw new Error(activePlayerError.message);
-    }
-
-    const memberActivePlayers = (activePlayers ?? []) as Pick<MatchPlayer, "match_id">[];
-    canceledMatchIds = Array.from(new Set(memberActivePlayers.map((player) => player.match_id)));
-  }
-
-  if (canceledMatchIds.length > 0 && !confirmCancelActiveMatch) {
-    throw new Error("진행 중이거나 배정된 경기가 있습니다. 경기 취소에 동의한 후 다시 퇴장해주세요.");
-  }
-
-  if (canceledMatchIds.length > 0) {
-    const { error: cancelError } = await admin.from("matches").delete().in("id", canceledMatchIds);
-
-    if (cancelError) {
-      throw new Error(cancelError.message);
-    }
-  }
-
-  const { data: attendance, error: attendanceError } = await admin
-    .from("attendances")
-    .update({ checked_out_at: new Date().toISOString() })
-    .eq("id", activeAttendance.id)
-    .select("id")
-    .maybeSingle();
-
-  if (attendanceError) {
-    throw new Error(attendanceError.message);
-  }
-
-  if (!attendance) {
-    throw new Error("퇴장 처리할 출석 기록을 찾을 수 없습니다.");
-  }
+  // Checkout and vacating only this member's seats commit together. Match rows,
+  // their times/scores, and every other participant remain untouched.
+  const { data: affectedMatchIds, error } = await admin.rpc("checkout_member_preserving_matches", {
+    p_meeting_id: meetingId,
+    p_member_id: memberId,
+    p_confirm_replace: confirmReplaceActiveMatch
+  });
+  if (error) throw new Error(error.message);
 
   let assignedMatches: AssignedMatchSummary[] = [];
   let assignmentWarning: string | null = null;
-
   try {
-    assignedMatches = await autoAssignMatches({
-      admin,
-      meetingId,
-      currentUserId
-    });
+    assignedMatches = await autoAssignMatches({ admin, meetingId, currentUserId });
   } catch (error) {
     assignmentWarning = error instanceof Error ? error.message : "자동 대진 생성에 실패했습니다.";
   }
 
-  return {
-    canceledMatchCount: canceledMatchIds.length,
-    assignedMatches,
-    assignmentWarning
-  };
+  let waitingMatchCount = 0;
+  const ids = (affectedMatchIds ?? []) as string[];
+  if (ids.length) {
+    const { data: remaining, error: lookupError } = await admin.from("match_players").select("match_id").in("match_id", ids);
+    if (lookupError) {
+      assignmentWarning = assignmentWarning ?? lookupError.message;
+    } else {
+      waitingMatchCount = ids.filter((id) => (remaining ?? []).filter((row) => row.match_id === id).length < 4).length;
+    }
+  }
+  return { waitingMatchCount, assignedMatches, assignmentWarning };
 }

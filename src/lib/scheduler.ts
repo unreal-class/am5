@@ -73,9 +73,14 @@ function pairKey(a: string, b: string) {
   return [a, b].sort().join(":");
 }
 
+function matchupKey(teamA: string[], teamB: string[]) {
+  return [pairKey(teamA[0], teamA[1]), pairKey(teamB[0], teamB[1])].sort().join("|");
+}
+
 function buildHistory(matches: Match[], players: MatchPlayer[]) {
   const partnerCounts = new Map<string, number>();
   const opponentCounts = new Map<string, number>();
+  const matchupCounts = new Map<string, number>();
   const playersByMatch = new Map<string, MatchPlayer[]>();
 
   players.forEach((player) => {
@@ -88,6 +93,11 @@ function buildHistory(matches: Match[], players: MatchPlayer[]) {
     const rows = playersByMatch.get(match.id) ?? [];
     const teamA = rows.filter((row) => row.team === "A").map((row) => row.member_id);
     const teamB = rows.filter((row) => row.team === "B").map((row) => row.member_id);
+
+    if (teamA.length === 2 && teamB.length === 2) {
+      const key = matchupKey(teamA, teamB);
+      matchupCounts.set(key, (matchupCounts.get(key) ?? 0) + 1);
+    }
 
     if (teamA.length === 2) {
       const key = pairKey(teamA[0], teamA[1]);
@@ -107,7 +117,7 @@ function buildHistory(matches: Match[], players: MatchPlayer[]) {
     }
   });
 
-  return { partnerCounts, opponentCounts };
+  return { partnerCounts, opponentCounts, matchupCounts };
 }
 
 function isMixed(team: Candidate[]) {
@@ -243,12 +253,13 @@ function scorePairing(
     (partnerCounts.get(pairKey(teamA[0].profile.id, teamA[1].profile.id)) ?? 0) +
     (partnerCounts.get(pairKey(teamB[0].profile.id, teamB[1].profile.id)) ?? 0);
 
-  return genderPenalty * 100000 + balance * 100 + partnerRepeat;
+  return { genderPenalty, balance, partnerRepeat };
 }
 
 function bestPairing(
   group: Candidate[],
-  partnerCounts: Map<string, number>
+  partnerCounts: Map<string, number>,
+  matchupCounts: Map<string, number>
 ) {
   const pairings: Array<[Candidate[], Candidate[]]> = [
     [
@@ -270,9 +281,18 @@ function bestPairing(
       teamA,
       teamB,
       score: scorePairing(teamA, teamB, partnerCounts),
+      repeats: matchupCounts.get(matchupKey(
+        teamA.map((player) => player.profile.id),
+        teamB.map((player) => player.profile.id)
+      )) ?? 0,
       balanceGap: Math.abs(teamAverage(teamA) - teamAverage(teamB))
     }))
-    .sort((a, b) => a.score - b.score)[0];
+    .sort((a, b) =>
+      a.score.genderPenalty - b.score.genderPenalty ||
+      a.repeats - b.repeats ||
+      a.score.partnerRepeat - b.score.partnerRepeat ||
+      a.score.balance - b.score.balance
+    )[0];
 }
 
 function activePlayerIds(matches: Match[], players: MatchPlayer[], meetingId: string) {
@@ -297,28 +317,31 @@ function openCourts(matches: Match[], meetingId: string, availableCourts = ALL_C
   return availableCourts.filter((court) => !occupied.has(court));
 }
 
-export function generateMatches({
+function waitingCandidates({
   meetingId,
   profiles,
   attendances,
   matches,
   players,
   stats,
-  availableCourts: configuredCourts,
   now = Date.now()
-}: GenerateInput): GeneratedMatch[] {
+}: GenerateInput): Candidate[] {
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const occupiedPlayers = activePlayerIds(matches, players, meetingId);
-  const availableCourts = openCourts(matches, meetingId, configuredCourts);
-  const eligibleMemberIds = attendances
-    .filter((attendance) => attendance.meeting_id === meetingId)
-    .filter((attendance) => !attendance.checked_out_at)
-    .map((attendance) => attendance.member_id)
+  // Re-entry creates another row. Never let an old checkout (or another
+  // meeting's attendance) overwrite the current session, regardless of order.
+  const attendanceByMemberId = new Map<string, Attendance>();
+  for (const attendance of attendances) {
+    if (attendance.meeting_id !== meetingId || attendance.checked_out_at) continue;
+    const current = attendanceByMemberId.get(attendance.member_id);
+    if (!current || new Date(attendance.checked_in_at).getTime() > new Date(current.checked_in_at).getTime()) {
+      attendanceByMemberId.set(attendance.member_id, attendance);
+    }
+  }
+  const eligibleMemberIds = [...attendanceByMemberId.keys()]
     .filter((memberId) => !occupiedPlayers.has(memberId));
 
-  const attendanceByMemberId = new Map(attendances.map((att) => [att.member_id, att]));
-
-  let candidates = eligibleMemberIds
+  return eligibleMemberIds
     .map((memberId) => profileById.get(memberId))
     .filter((profile): profile is Profile => Boolean(profile))
     .filter(isEligibleProfile)
@@ -349,8 +372,73 @@ export function generateMatches({
       return a.checkedInAt.localeCompare(b.checkedInAt);
     })
     .map((candidate, queueRank) => ({ ...candidate, queueRank }));
+}
 
-  const { partnerCounts, opponentCounts } = buildHistory(matches, players);
+// Only the departing player's seat may change. Select one waiting member
+// using the same attendance/game priorities, then break ties by team fit.
+export function selectReplacement(
+  input: GenerateInput & { matchId: string; departingMemberId?: string; vacantTeam?: Team }
+): string | null {
+  const match = input.matches.find((row) => row.id === input.matchId && row.meeting_id === input.meetingId);
+  if (!match || match.ended_at || (match.status !== "scheduled" && match.status !== "in_progress")) return null;
+  const seats = input.players.filter((row) => row.match_id === match.id);
+  const departing = seats.find((row) => row.member_id === input.departingMemberId);
+  const vacantTeam = departing?.team ?? input.vacantTeam;
+  const remaining = seats.filter((row) => row !== departing);
+  if (!vacantTeam || (input.departingMemberId && !departing) ||
+    new Set(remaining.map((row) => row.member_id)).size !== remaining.length ||
+    remaining.filter((row) => row.team === vacantTeam).length >= 2 ||
+    remaining.filter((row) => row.team !== vacantTeam).length > 2) return null;
+
+  const candidates = waitingCandidates(input).filter((row) => row.profile.id !== input.departingMemberId);
+  if (!candidates.length) return null;
+  const allPlayedThree = candidates.every((row) => row.todayGames >= 3);
+  const history = buildHistory(input.matches.filter((row) => row.id !== match.id), input.players);
+  const profileById = new Map(input.profiles.map((profile) => [profile.id, profile]));
+  const fixed = remaining.map((seat) => {
+    const profile = profileById.get(seat.member_id);
+    if (!profile) throw new Error("기존 경기 참여자 정보를 찾을 수 없습니다.");
+    const stat = input.stats.get(profile.id);
+    return {
+      team: seat.team,
+      candidate: {
+        profile, winRate: stat && stat.games > 0 ? stat.winRate : profile.is_guest ? profile.seed_win_rate : 0,
+        todayGames: 0, waitingMinutes: 0, checkedInAt: "", queueRank: 0, checkInRank: 0
+      }
+    };
+  });
+
+  return candidates.map((candidate) => {
+    const team = (side: Team) => [
+      ...fixed.filter((row) => row.team === side).map((row) => row.candidate),
+      ...(vacantTeam === side ? [candidate] : [])
+    ];
+    const teamA = team("A");
+    const teamB = team("B");
+    return {
+      candidate,
+      score: remaining.length === 3 ? scorePairing(teamA, teamB, history.partnerCounts) : { genderPenalty: 0, partnerRepeat: 0, balance: 0 },
+      repeats: remaining.length === 3 ? history.matchupCounts.get(matchupKey(
+        teamA.map((row) => row.profile.id), teamB.map((row) => row.profile.id)
+      )) ?? 0 : 0
+    };
+  }).sort((a, b) =>
+    (allPlayedThree ? 0 : a.candidate.todayGames - b.candidate.todayGames || b.candidate.waitingMinutes - a.candidate.waitingMinutes) ||
+    a.candidate.checkedInAt.localeCompare(b.candidate.checkedInAt) ||
+    a.score.genderPenalty - b.score.genderPenalty ||
+    a.repeats - b.repeats ||
+    a.score.partnerRepeat - b.score.partnerRepeat ||
+    a.score.balance - b.score.balance ||
+    a.candidate.profile.id.localeCompare(b.candidate.profile.id)
+  )[0].candidate.profile.id;
+}
+
+export function generateMatches(input: GenerateInput): GeneratedMatch[] {
+  const { meetingId, matches, players, availableCourts: configuredCourts } = input;
+  const availableCourts = openCourts(matches, meetingId, configuredCourts);
+  let candidates = waitingCandidates(input);
+
+  const { partnerCounts, opponentCounts, matchupCounts } = buildHistory(matches, players);
   const generated: GeneratedMatch[] = [];
   const nextRound = Math.max(0, ...matches.filter((match) => match.meeting_id === meetingId).map((match) => match.round_number)) + 1;
   const slots = Math.min(availableCourts.length, Math.floor(candidates.length / 4));
@@ -359,7 +447,7 @@ export function generateMatches({
     const group = bestGroup(candidates, partnerCounts, opponentCounts);
     if (group.length < 4) break;
 
-    const pairing = bestPairing(group, partnerCounts);
+    const pairing = bestPairing(group, partnerCounts, matchupCounts);
     const usedIds = new Set(group.map((c) => c.profile.id));
 
     generated.push({

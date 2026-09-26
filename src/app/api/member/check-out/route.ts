@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const meetingDate = String(body.meetingDate ?? "");
-  const confirmCancelActiveMatch = body.confirmCancelActiveMatch === true;
+  const confirmReplaceActiveMatch = body.confirmReplaceActiveMatch === true;
 
   if (!validDateKey(meetingDate)) {
     return NextResponse.json({ message: "모임 날짜가 올바르지 않습니다." }, { status: 400 });
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       meetingId: meeting.id,
       memberId: gate.user.id,
       currentUserId: gate.user.id,
-      confirmCancelActiveMatch
+      confirmReplaceActiveMatch
     });
 
     return NextResponse.json({ ok: true, ...result });
