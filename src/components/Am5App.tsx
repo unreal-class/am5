@@ -1243,7 +1243,18 @@ export function Am5App() {
     [regularProfiles, meetings, matches, matchPlayers, rankingScope]
   );
   const meetingDateById = useMemo(() => new Map(meetings.map((meeting) => [meeting.id, meeting.meeting_date])), [meetings]);
-  const selectedResultMeetingId = resultMeetingId || meetings[0]?.id || "";
+  const pastMeetings = useMemo(
+    () => meetings.filter((meeting) => meeting.meeting_date < today)
+      .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date)),
+    [meetings, today]
+  );
+  const selectedPastMeetingId = pastMeetings.some((meeting) => meeting.id === resultMeetingId)
+    ? resultMeetingId
+    : pastMeetings[0]?.id ?? "";
+  const selectedResultMeetingId = tab === "results" ? todayMeeting?.id ?? "" : selectedPastMeetingId;
+  const todayPendingMatches = todayMatches.filter(
+    (match) => match.status !== "finished" || match.team_a_score === null || match.team_b_score === null
+  );
   const resultMatches = useMemo(
     () =>
       matches
@@ -1428,12 +1439,6 @@ export function Am5App() {
         }),
     [todayMatches]
   );
-
-  useEffect(() => {
-    if (!meetings.length) return;
-    if (resultMeetingId) return;
-    setResultMeetingId(meetings[0].id);
-  }, [meetings, resultMeetingId]);
 
   const isAdmin = profile?.role === "admin";
   const availableCourtNumbers = useMemo(
@@ -2565,16 +2570,16 @@ export function Am5App() {
   const meetingSelectPanel = (
     <section className="panel">
       <label>
-        모임 날짜 선택
-        <select value={selectedResultMeetingId} onChange={(event) => setResultMeetingId(event.target.value)}>
-          {meetings.length ? (
-            meetings.map((meeting) => (
+        지난 모임 날짜 선택
+        <select value={selectedPastMeetingId} onChange={(event) => setResultMeetingId(event.target.value)}>
+          {pastMeetings.length ? (
+            pastMeetings.map((meeting) => (
               <option key={meeting.id} value={meeting.id}>
                 {formatDate(meeting.meeting_date)}
               </option>
             ))
           ) : (
-            <option value="">모임 기록 없음</option>
+            <option value="">지난 모임 기록 없음</option>
           )}
         </select>
       </label>
@@ -2658,20 +2663,35 @@ export function Am5App() {
           </div>
         )}
 
-        {tab === "results" && (
+        {(tab === "results" || tab === "records") && (
           <div className="screen">
             <div className="section-head">
               <div>
-                <p className="eyebrow">공용 조회</p>
-                <h1>모임 결과</h1>
+                <p className="eyebrow">{tab === "results" ? formatDate(today) : "지난 모임 조회"}</p>
+                <h1>{tab === "results" ? "오늘 경기" : "지난 경기 기록"}</h1>
               </div>
             </div>
 
-            {meetingSelectPanel}
+            {tab === "records" && meetingSelectPanel}
+
+            {tab === "results" && (
+              <section className="panel">
+                <div className="section-head">
+                  <h2>현재 경기 상황</h2>
+                  <span className="count-chip">{todayPendingMatches.length}경기</span>
+                </div>
+                <p className="muted">출석 {todayActiveAttendanceByMemberId.size}명 · 대기 {waitingPresentCount}명</p>
+                {todayPendingMatches.length ? (
+                  <div className="match-list">{todayPendingMatches.map((match) => renderMatchCard(match))}</div>
+                ) : (
+                  <p className="empty">현재 진행 중이거나 배정 대기 중인 경기가 없습니다.</p>
+                )}
+              </section>
+            )}
 
             <section className="panel">
               <div className="section-head">
-                <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
+                <h2>{tab === "results" ? "오늘 경기 결과" : "경기 결과"}</h2>
                 <span className="count-chip">{resultMatches.length}경기</span>
               </div>
               {resultMatches.length ? (
@@ -2742,26 +2762,13 @@ export function Am5App() {
                   })}
                 </div>
               ) : (
-                <p className="empty">선택한 날짜에 기록된 경기 결과가 없습니다.</p>
+                <p className="empty">{tab === "results" ? "오늘 기록된 경기 결과가 없습니다." : "선택한 날짜에 기록된 경기 결과가 없습니다."}</p>
               )}
             </section>
-          </div>
-        )}
-
-        {tab === "records" && (
-          <div className="screen">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">공용 조회</p>
-                <h1>선수별 기록</h1>
-              </div>
-            </div>
-
-            {meetingSelectPanel}
 
             <section className="panel">
               <div className="section-head">
-                <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
+                <h2>{tab === "results" ? "오늘 선수별 결과" : "선수별 기록"}</h2>
                 <span className="count-chip">{playerMeetingResults.length}명</span>
               </div>
               {playerMeetingResults.length ? (
@@ -2820,7 +2827,7 @@ export function Am5App() {
                   <p className="helper-text">대기시간은 출석 후 마지막 경기 시작 직전까지의 체류시간에서 이전 경기 진행시간을 제외한 값입니다.</p>
                 </div>
               ) : (
-                <p className="empty">선택한 날짜에 기록된 선수별 결과가 없습니다.</p>
+                <p className="empty">{tab === "results" ? "오늘 기록된 선수별 결과가 없습니다." : "선택한 날짜에 기록된 선수별 결과가 없습니다."}</p>
               )}
             </section>
           </div>
@@ -3347,7 +3354,7 @@ export function Am5App() {
       <nav className="bottom-tabs">
         {[
           ["today", "오늘", Home],
-          ["results", "경기", ClipboardList],
+          ["results", "라이브", ClipboardList],
           ["records", "기록", FileText],
           ["ranking", "랭킹", Trophy],
           ["me", "내 정보", User]
