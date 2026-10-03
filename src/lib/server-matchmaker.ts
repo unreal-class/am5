@@ -48,6 +48,9 @@ export async function autoAssignMatches({
   const matches = (matchesResult.data ?? []) as Match[];
   const players = (playersResult.data ?? []) as MatchPlayer[];
   const courts = (courtsResult.data ?? []) as Court[];
+  // Every candidate in this assignment run is compared at the same fresh
+  // server timestamp. A new run always takes a new timestamp and recalculates.
+  const assignmentNow = Date.now();
   const stats = buildStats(profiles, meetings, matches, players, "all");
   const availableCourts = courts.filter((court) => court.is_available).map((court) => court.court_number);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
@@ -60,7 +63,8 @@ export async function autoAssignMatches({
     for (const team of ["A", "B"] as const) {
       while (players.filter((row) => row.match_id === match.id && row.team === team).length < 2) {
         const replacementId = selectReplacement({
-          meetingId, profiles, attendances, matches, players, stats, matchId: match.id, vacantTeam: team
+          meetingId, profiles, attendances, matches, players, stats, matchId: match.id, vacantTeam: team,
+          now: assignmentNow
         });
         if (!replacementId) break;
         const { data: player, error } = await admin.rpc("fill_match_vacancy", {
@@ -90,7 +94,8 @@ export async function autoAssignMatches({
     matches,
     players,
     stats,
-    availableCourts
+    availableCourts,
+    now: assignmentNow
   });
   for (const generatedMatch of generated) {
     const { data: match, error: matchError } = await admin

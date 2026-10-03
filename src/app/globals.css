@@ -199,15 +199,6 @@ code {
   grid-template-columns: repeat(3, 1fr);
 }
 
-.segmented.result-view-switch {
-  width: 184px;
-  flex: 0 0 184px;
-}
-
-.segmented.result-view-switch button {
-  min-height: 38px;
-}
-
 .segmented button {
   min-height: 42px;
   border: 0;
@@ -1108,8 +1099,4 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .segmented.result-view-switch {
-    width: 156px;
-    flex-basis: 156px;
-  }
 }

@@ -32,7 +32,7 @@ type Candidate = {
   checkInRank: number;
 };
 
-function totalWaitingMinutes(
+export function accumulatedWaitingMinutes(
   memberId: string,
   attendance: Attendance,
   matches: Match[],
@@ -41,6 +41,8 @@ function totalWaitingMinutes(
   now: number
 ) {
   const checkedInAt = new Date(attendance.checked_in_at).getTime();
+  if (!Number.isFinite(checkedInAt) || checkedInAt >= now) return 0;
+
   const todayMatchIds = new Set(matches.filter((match) => match.meeting_id === meetingId).map((match) => match.id));
   const memberMatchIds = new Set(
     players
@@ -48,17 +50,51 @@ function totalWaitingMinutes(
       .filter((player) => todayMatchIds.has(player.match_id))
       .map((player) => player.match_id)
   );
-  const playingMs = matches
+  const completedIntervals = matches
     .filter((match) => memberMatchIds.has(match.id))
-    .reduce((sum, match) => {
-      if (!match.started_at || !match.ended_at) return sum;
+    .filter((match) => match.status === "finished" && match.started_at && match.ended_at)
+    .map((match) => ({
+      startedAt: new Date(match.started_at as string).getTime(),
+      endedAt: new Date(match.ended_at as string).getTime()
+    }))
+    .filter(({ startedAt, endedAt }) =>
+      Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt >= checkedInAt && endedAt <= now && endedAt >= startedAt
+    )
+    .sort((a, b) => a.endedAt - b.endedAt || a.startedAt - b.startedAt);
 
-      const startedAt = Math.max(checkedInAt, new Date(match.started_at).getTime());
-      const endedAt = Math.min(now, new Date(match.ended_at).getTime());
-      return sum + Math.max(0, endedAt - startedAt);
-    }, 0);
+  if (completedIntervals.length === 0) {
+    return Math.max(0, (now - checkedInAt) / 60000);
+  }
 
-  return Math.max(0, Math.round((now - checkedInAt - playingMs) / 60000));
+  // The accumulated clock starts when the first completed game ends. Later
+  // game intervals pause that clock; overlapping intervals are merged so time
+  // can never be subtracted twice because of malformed or duplicate records.
+  const accumulationStartedAt = completedIntervals[0].endedAt;
+  const pausedIntervals = completedIntervals
+    .map(({ startedAt, endedAt }) => ({
+      startedAt: Math.max(accumulationStartedAt, startedAt),
+      endedAt: Math.min(now, endedAt)
+    }))
+    .filter(({ startedAt, endedAt }) => endedAt > startedAt)
+    .sort((a, b) => a.startedAt - b.startedAt || a.endedAt - b.endedAt);
+  let pausedMs = 0;
+  let pausedStart = 0;
+  let pausedEnd = 0;
+
+  for (const interval of pausedIntervals) {
+    if (interval.startedAt > pausedEnd) {
+      pausedMs += Math.max(0, pausedEnd - pausedStart);
+      pausedStart = interval.startedAt;
+      pausedEnd = interval.endedAt;
+    } else {
+      pausedEnd = Math.max(pausedEnd, interval.endedAt);
+    }
+  }
+  pausedMs += Math.max(0, pausedEnd - pausedStart);
+
+  // Keep fractional minutes internally so candidates who differ by seconds do
+  // not become an artificial tie. Formatting can round only for display.
+  return Math.max(0, (now - accumulationStartedAt - pausedMs) / 60000);
 }
 
 const ALL_COURTS: number[] = DEFAULT_COURTS.map((court) => court.court_number);
@@ -354,7 +390,7 @@ function waitingCandidates({
         profile,
         todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
         winRate,
-        waitingMinutes: att ? totalWaitingMinutes(profile.id, att, matches, players, meetingId, now) : 0,
+        waitingMinutes: att ? accumulatedWaitingMinutes(profile.id, att, matches, players, meetingId, now) : 0,
         checkedInAt: att?.checked_in_at ?? "",
         queueRank: 0,
         checkInRank: 0

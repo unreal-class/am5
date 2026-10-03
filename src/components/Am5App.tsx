@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardList,
   DoorOpen,
+  FileText,
   Home,
   KeyRound,
   LayoutGrid,
@@ -55,10 +56,10 @@ import {
   type Team
 } from "@/lib/models";
 import { buildStats, getRankings } from "@/lib/stats";
+import { accumulatedWaitingMinutes } from "@/lib/scheduler";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-type Tab = "today" | "results" | "ranking" | "me" | "admin" | "members" | "monitor" | "operations" | "test" | "courts";
-type ResultView = "matches" | "players";
+type Tab = "today" | "results" | "records" | "ranking" | "me" | "admin" | "members" | "monitor" | "operations" | "test" | "courts";
 type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role"> & { seed_win_rate: number | string };
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
@@ -1143,7 +1144,6 @@ export function Am5App() {
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [tab, setTab] = useState<Tab>("today");
   const [resultMeetingId, setResultMeetingId] = useState("");
-  const [resultView, setResultView] = useState<ResultView>("matches");
   const [rankingScope, setRankingScope] = useState<RankingScope>("month");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -2374,6 +2374,16 @@ export function Am5App() {
     const latestAttendance = todayLatestAttendanceByMemberId.get(member.id);
     const isCheckedIn = todayActiveAttendanceByMemberId.has(member.id);
     const hasActiveMatch = activeMatchMemberIds.has(member.id);
+    const currentWait = latestAttendance && isCheckedIn
+      ? Math.floor(accumulatedWaitingMinutes(
+          member.id,
+          latestAttendance,
+          matches,
+          matchPlayers,
+          todayMeeting?.id ?? "",
+          Date.now()
+        ))
+      : 0;
     const draft = memberDrafts[member.id] ?? {
       display_name: member.display_name,
       phone: member.phone,
@@ -2475,7 +2485,7 @@ export function Am5App() {
               {isCheckedIn
                 ? hasActiveMatch
                   ? `출석 ${formatTime(latestAttendance?.checked_in_at)} (경기 중)`
-                  : `출석 ${formatTime(latestAttendance?.checked_in_at)} (${elapsedMinutes(latestAttendance?.checked_in_at ?? null, new Date().toISOString()) ?? 0}분 대기)`
+                  : `출석 ${formatTime(latestAttendance?.checked_in_at)} (${currentWait}분 대기)`
                 : latestAttendance?.checked_out_at
                   ? `최근 퇴장 ${formatTime(latestAttendance.checked_out_at)}`
                   : "오늘 출석 기록 없음"}
@@ -2551,6 +2561,25 @@ export function Am5App() {
   if (profile.must_change_password) {
     return <PasswordChangeScreen profile={profile} onChanged={hydrate} />;
   }
+
+  const meetingSelectPanel = (
+    <section className="panel">
+      <label>
+        모임 날짜 선택
+        <select value={selectedResultMeetingId} onChange={(event) => setResultMeetingId(event.target.value)}>
+          {meetings.length ? (
+            meetings.map((meeting) => (
+              <option key={meeting.id} value={meeting.id}>
+                {formatDate(meeting.meeting_date)}
+              </option>
+            ))
+          ) : (
+            <option value="">모임 기록 없음</option>
+          )}
+        </select>
+      </label>
+    </section>
+  );
 
   return (
     <main className="app-shell">
@@ -2636,41 +2665,16 @@ export function Am5App() {
                 <p className="eyebrow">공용 조회</p>
                 <h1>모임 결과</h1>
               </div>
-              <div className="segmented result-view-switch" aria-label="결과 보기 방식">
-                <button className={resultView === "matches" ? "active" : ""} type="button" onClick={() => setResultView("matches")}>
-                  경기별
-                </button>
-                <button className={resultView === "players" ? "active" : ""} type="button" onClick={() => setResultView("players")}>
-                  선수별
-                </button>
-              </div>
             </div>
 
-            <section className="panel">
-              <label>
-                모임 날짜 선택
-                <select value={selectedResultMeetingId} onChange={(event) => setResultMeetingId(event.target.value)}>
-                  {meetings.length ? (
-                    meetings.map((meeting) => (
-                      <option key={meeting.id} value={meeting.id}>
-                        {formatDate(meeting.meeting_date)}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">모임 기록 없음</option>
-                  )}
-                </select>
-              </label>
-            </section>
+            {meetingSelectPanel}
 
             <section className="panel">
               <div className="section-head">
                 <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
-                <span className="count-chip">
-                  {resultView === "matches" ? `${resultMatches.length}경기` : `${playerMeetingResults.length}명`}
-                </span>
+                <span className="count-chip">{resultMatches.length}경기</span>
               </div>
-              {resultView === "matches" ? resultMatches.length ? (
+              {resultMatches.length ? (
                 <div className="match-list">
                   {resultMatches.map((match) => {
                     const teamA = matchTeam(match.id, "A");
@@ -2739,7 +2743,28 @@ export function Am5App() {
                 </div>
               ) : (
                 <p className="empty">선택한 날짜에 기록된 경기 결과가 없습니다.</p>
-              ) : playerMeetingResults.length ? (
+              )}
+            </section>
+          </div>
+        )}
+
+        {tab === "records" && (
+          <div className="screen">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">공용 조회</p>
+                <h1>선수별 기록</h1>
+              </div>
+            </div>
+
+            {meetingSelectPanel}
+
+            <section className="panel">
+              <div className="section-head">
+                <h2>{formatDate(meetingDateById.get(selectedResultMeetingId) ?? "")}</h2>
+                <span className="count-chip">{playerMeetingResults.length}명</span>
+              </div>
+              {playerMeetingResults.length ? (
                 <div className="player-result-list">
                   {playerMeetingResults.map((row) => (
                     <article className="player-result-card" key={row.memberId}>
@@ -3322,7 +3347,8 @@ export function Am5App() {
       <nav className="bottom-tabs">
         {[
           ["today", "오늘", Home],
-          ["results", "결과", ClipboardList],
+          ["results", "경기", ClipboardList],
+          ["records", "기록", FileText],
           ["ranking", "랭킹", Trophy],
           ["me", "내 정보", User]
         ].map(([key, label, Icon]) => {

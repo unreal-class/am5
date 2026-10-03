@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import "./register-typescript.mjs";
-const { generateMatches, selectReplacement } = await import("../src/lib/scheduler.ts");
+const { accumulatedWaitingMinutes, generateMatches, selectReplacement } = await import("../src/lib/scheduler.ts");
 const at = (minute) => new Date(Date.UTC(2026, 8, 27, 6, minute)).toISOString();
 function fixture(count = 4) {
   const profiles = Array.from({ length: count }, (_, i) => ({
@@ -175,4 +175,36 @@ test("ended matches cannot have their participants replaced", () => {
   const input = vacancyFixture();
   input.matches[0].ended_at = at(50);
   assert.equal(selectReplacement(input), null);
+});
+
+test("waiting time starts at the first completed match and accumulates between later games", () => {
+  const input = fixture();
+  addHistory(input, ["0", "outside-1"], ["outside-2", "outside-3"], {
+    started_at: at(10), ended_at: at(20)
+  });
+  addHistory(input, ["0", "outside-4"], ["outside-5", "outside-6"], {
+    started_at: at(30), ended_at: at(40)
+  });
+  const attendance = input.attendances[0];
+  assert.equal(accumulatedWaitingMinutes("0", attendance, input.matches, input.players, "today", new Date(at(60)).getTime()), 30);
+  assert.equal(accumulatedWaitingMinutes("0", attendance, input.matches, input.players, "today", new Date(at(75)).getTime()), 45);
+
+  const reentered = { ...attendance, checked_in_at: at(50) };
+  assert.equal(accumulatedWaitingMinutes("0", reentered, input.matches, input.players, "today", new Date(at(60)).getTime()), 10);
+});
+
+test("replacement recalculates accumulated waiting from each candidate's completed games", () => {
+  const input = vacancyFixture();
+  input.attendances[4].checked_in_at = at(30);
+  input.attendances[5].checked_in_at = at(0);
+  addHistory(input, ["4", "outside-1"], ["outside-2", "outside-3"], {
+    started_at: at(31), ended_at: at(32)
+  });
+  addHistory(input, ["5", "outside-4"], ["outside-5", "outside-6"], {
+    started_at: at(50), ended_at: at(51)
+  });
+
+  assert.equal(selectReplacement(input), "4", "28 minutes currently waiting beats 9 minutes");
+  input.matches[1].ended_at = at(59);
+  assert.equal(selectReplacement(input), "5", "a newly completed game resets current waiting time");
 });
