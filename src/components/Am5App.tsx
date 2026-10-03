@@ -1,19 +1,19 @@
 "use client";
 
 import {
-  Activity,
   CalendarPlus,
+  ChartNoAxesColumnIncreasing,
   CheckCircle2,
   ClipboardList,
   DoorOpen,
   Home,
   KeyRound,
+  LayoutGrid,
+  ListRestart,
   LogOut,
-  Medal,
   Play,
   RotateCcw,
   Save,
-  Settings2,
   Shield,
   StopCircle,
   Trash2,
@@ -2561,17 +2561,21 @@ export function Am5App() {
         <div className="top-actions">
           {isAdmin && (
             <>
-              <button className={classNames("icon-button", tab === "members" && "active")} title="회원" type="button" onClick={() => setTab("members")}>
+              <button className={classNames("icon-button", tab === "members" && "active")} title="회원 관리" aria-label="회원 관리" type="button" onClick={() => setTab("members")}>
                 <Users size={19} />
+                <span>회원<br />관리</span>
               </button>
-              <button className={classNames("icon-button", tab === "monitor" && "active")} title="현황" type="button" onClick={() => setTab("monitor")}>
-                <Activity size={19} />
+              <button className={classNames("icon-button", tab === "monitor" && "active")} title="경기 정보" aria-label="경기 정보" type="button" onClick={() => setTab("monitor")}>
+                <ChartNoAxesColumnIncreasing size={19} />
+                <span>경기<br />정보</span>
               </button>
-              <button className={classNames("icon-button", tab === "operations" && "active")} title="경기 운영" type="button" onClick={() => setTab("operations")}>
-                <Settings2 size={19} />
+              <button className={classNames("icon-button", tab === "operations" && "active")} title="경기 운영" aria-label="경기 운영" type="button" onClick={() => setTab("operations")}>
+                <ListRestart size={19} />
+                <span>경기<br />운영</span>
               </button>
-              <button className={classNames("icon-button", tab === "courts" && "active")} title="코트" type="button" onClick={() => setTab("courts")}>
-                <Medal size={19} />
+              <button className={classNames("icon-button", tab === "courts" && "active")} title="코트 관리" aria-label="코트 관리" type="button" onClick={() => setTab("courts")}>
+                <LayoutGrid size={19} />
+                <span>코트<br />관리</span>
               </button>
             </>
           )}

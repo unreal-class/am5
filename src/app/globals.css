@@ -494,6 +494,23 @@ code {
   color: var(--primary-dark);
 }
 
+.top-actions .icon-button {
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 54px;
+  height: auto;
+  min-height: 54px;
+  gap: 4px;
+  padding: 6px 2px;
+}
+
+.top-actions .icon-button span {
+  font-size: 0.9rem;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .match-card {
   display: grid;
   gap: 13px;
