@@ -60,6 +60,8 @@ import { accumulatedWaitingMinutes } from "@/lib/scheduler";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 type Tab = "today" | "results" | "records" | "ranking" | "me" | "admin" | "members" | "monitor" | "operations" | "test" | "courts";
+type LivePage = "current" | "matches" | "players";
+const livePageLabels: Record<LivePage, string> = { current: "현재 경기", matches: "오늘 경기 결과", players: "선수별 결과" };
 type Draft = Pick<Profile, "display_name" | "phone" | "gender" | "role"> & { seed_win_rate: number | string };
 type TestMatchStatus = "scheduled" | "in_progress" | "awaiting_result" | "finished";
 type TestUser = {
@@ -1143,6 +1145,7 @@ export function Am5App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [tab, setTab] = useState<Tab>("today");
+  const [livePage, setLivePage] = useState<LivePage>("current");
   const [resultMeetingId, setResultMeetingId] = useState("");
   const [rankingScope, setRankingScope] = useState<RankingScope>("month");
   const [loading, setLoading] = useState(true);
@@ -1155,6 +1158,7 @@ export function Am5App() {
     onConfirm: () => Promise<void>;
   } | null>(null);
   const [memberDrafts, setMemberDrafts] = useState<Record<string, Draft>>({});
+  const [waitingClock, setWaitingClock] = useState(0);
   const pollingInFlightRef = useRef(false);
   const [newMemberDraft, setNewMemberDraft] = useState<{
     displayName: string;
@@ -1593,6 +1597,17 @@ export function Am5App() {
 
     return () => window.clearInterval(poll);
   }, [loadData, loading, profile, session?.user]);
+
+  useEffect(() => {
+    const updateWaitingClock = () => setWaitingClock(Date.now());
+    updateWaitingClock();
+    const timer = window.setInterval(updateWaitingClock, 60_000);
+    document.addEventListener("visibilitychange", updateWaitingClock);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", updateWaitingClock);
+    };
+  }, []);
 
   useEffect(() => {
     const drafts = Object.fromEntries(
@@ -2386,7 +2401,7 @@ export function Am5App() {
           matches,
           matchPlayers,
           todayMeeting?.id ?? "",
-          Date.now()
+          waitingClock
         ))
       : 0;
     const draft = memberDrafts[member.id] ?? {
@@ -2668,16 +2683,26 @@ export function Am5App() {
             <div className="section-head">
               <div>
                 <p className="eyebrow">{tab === "results" ? formatDate(today) : "지난 모임 조회"}</p>
-                <h1>{tab === "results" ? "오늘 경기" : "지난 경기 기록"}</h1>
+                <h1>{tab === "results" ? livePageLabels[livePage] : "지난 경기 기록"}</h1>
               </div>
             </div>
 
             {tab === "records" && meetingSelectPanel}
 
             {tab === "results" && (
+              <div className="segmented compact" aria-label="라이브 화면 선택">
+                {(["current", "matches", "players"] as LivePage[]).map((page) => (
+                  <button aria-pressed={livePage === page} className={livePage === page ? "active" : ""} key={page} type="button" onClick={() => setLivePage(page)}>
+                    {livePageLabels[page]}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {tab === "results" && livePage === "current" && (
               <section className="panel">
                 <div className="section-head">
-                  <h2>현재 경기 상황</h2>
+                  <h2>현재 경기</h2>
                   <span className="count-chip">{todayPendingMatches.length}경기</span>
                 </div>
                 <p className="muted">출석 {todayActiveAttendanceByMemberId.size}명 · 대기 {waitingPresentCount}명</p>
@@ -2689,7 +2714,7 @@ export function Am5App() {
               </section>
             )}
 
-            <section className="panel">
+            {(tab === "records" || livePage === "matches") && <section className="panel">
               <div className="section-head">
                 <h2>{tab === "results" ? "오늘 경기 결과" : "경기 결과"}</h2>
                 <span className="count-chip">{resultMatches.length}경기</span>
@@ -2764,11 +2789,11 @@ export function Am5App() {
               ) : (
                 <p className="empty">{tab === "results" ? "오늘 기록된 경기 결과가 없습니다." : "선택한 날짜에 기록된 경기 결과가 없습니다."}</p>
               )}
-            </section>
+            </section>}
 
-            <section className="panel">
+            {(tab === "records" || livePage === "players") && <section className="panel">
               <div className="section-head">
-                <h2>{tab === "results" ? "오늘 선수별 결과" : "선수별 기록"}</h2>
+                <h2>{tab === "results" ? "선수별 결과" : "선수별 기록"}</h2>
                 <span className="count-chip">{playerMeetingResults.length}명</span>
               </div>
               {playerMeetingResults.length ? (
@@ -2829,7 +2854,7 @@ export function Am5App() {
               ) : (
                 <p className="empty">{tab === "results" ? "오늘 기록된 선수별 결과가 없습니다." : "선택한 날짜에 기록된 선수별 결과가 없습니다."}</p>
               )}
-            </section>
+            </section>}
           </div>
         )}
 
@@ -3353,7 +3378,7 @@ export function Am5App() {
 
       <nav className="bottom-tabs">
         {[
-          ["today", "오늘", Home],
+          ["today", "홈", Home],
           ["results", "라이브", ClipboardList],
           ["records", "기록", FileText],
           ["ranking", "랭킹", Trophy],
@@ -3361,7 +3386,10 @@ export function Am5App() {
         ].map(([key, label, Icon]) => {
           const TabIcon = Icon as typeof Home;
           return (
-            <button className={tab === key ? "active" : ""} key={key as string} type="button" onClick={() => setTab(key as Tab)}>
+            <button className={tab === key ? "active" : ""} key={key as string} type="button" onClick={() => {
+              if (key === "results") setLivePage("current");
+              setTab(key as Tab);
+            }}>
               <TabIcon size={20} />
               <span>{label as string}</span>
             </button>

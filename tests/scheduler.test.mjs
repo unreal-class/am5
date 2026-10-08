@@ -89,7 +89,7 @@ test("mixed doubles rotate the two mixed pairings before reuse", () => {
   assert.equal(seen.size, 2);
 });
 
-test("re-entry preserves daily game counts and the three-game attendance priority", () => {
+test("re-entry preserves daily game counts and uses the latest check-in for the early bonus", () => {
   const input = fixture(8);
   for (let round = 0; round < 3; round++) {
     addHistory(input, ["0", "1"], ["2", "3"]);
@@ -97,7 +97,8 @@ test("re-entry preserves daily game counts and the three-game attendance priorit
   }
   input.attendances[0].checked_in_at = at(59);
   input.attendances.push({ ...input.attendances[0], id: "old", checked_in_at: at(-60), checked_out_at: at(30) });
-  assert.deepEqual(members(generateMatches(input)).sort(), ["1", "2", "3", "4"]);
+  assert.equal(members(generateMatches(input)).length, 4);
+  assert.ok(!members(generateMatches(input)).includes("0"));
 });
 
 test("multiple courts use distinct players and only unoccupied available courts", () => {
@@ -142,11 +143,33 @@ test("replacement prioritizes fewer daily games and latest re-entry time", () =>
   assert.equal(selectReplacement(input), "6");
 });
 
-test("replacement uses arrival priority when every waiting candidate has at least three games", () => {
+test("replacement never lets an early arrival get more than one game ahead", () => {
   const input = vacancyFixture();
   for (let i = 0; i < 4; i++) addHistory(input, ["4", "x"], ["y", "z"]);
   for (let i = 0; i < 3; i++) addHistory(input, ["5", "x"], ["y", "z"]);
-  assert.equal(selectReplacement(input), "4");
+  assert.equal(selectReplacement(input), "5");
+});
+
+test("early arrivals can be one game ahead, but not two", () => {
+  const input = fixture(8);
+  input.attendances.forEach((attendance, i) => { attendance.checked_in_at = at(i < 4 ? i : 30 + i - 4); });
+  for (let i = 0; i < 4; i++) addHistory(input, [String(i), `outside-a-${i}`], [`outside-b-${i}`, `outside-c-${i}`]);
+  assert.deepEqual(members(generateMatches(input)).sort(), ["0", "1", "2", "3"]);
+  addHistory(input, ["0", "outside-d"], ["outside-e", "outside-f"]);
+  assert.ok(!members(generateMatches(input)).includes("0"));
+});
+
+test("the 30-minute cutoff is exact and applies after three games", () => {
+  const input = fixture(5);
+  input.attendances.forEach((attendance, i) => { attendance.checked_in_at = at(i === 4 ? 30 : i); });
+  for (let i = 0; i < 5; i++) {
+    for (let round = 0; round < (i === 4 ? 3 : 4); round++) {
+      addHistory(input, [String(i), `outside-a-${i}-${round}`], [`outside-b-${i}-${round}`, `outside-c-${i}-${round}`]);
+    }
+  }
+  assert.deepEqual(members(generateMatches(input)).sort(), ["0", "1", "2", "3"]);
+  input.attendances[4].checked_in_at = at(29);
+  assert.ok(members(generateMatches(input)).includes("4"));
 });
 
 test("replacement breaks attendance ties using the fixed teams' mixed doubles fit", () => {
@@ -195,8 +218,8 @@ test("waiting time starts at the first completed match and accumulates between l
 
 test("replacement recalculates accumulated waiting from each candidate's completed games", () => {
   const input = vacancyFixture();
-  input.attendances[4].checked_in_at = at(30);
-  input.attendances[5].checked_in_at = at(0);
+  input.attendances[4].checked_in_at = at(31);
+  input.attendances[5].checked_in_at = at(30);
   addHistory(input, ["4", "outside-1"], ["outside-2", "outside-3"], {
     started_at: at(31), ended_at: at(32)
   });

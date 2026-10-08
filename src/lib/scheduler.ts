@@ -25,6 +25,7 @@ type GenerateInput = {
 type Candidate = {
   profile: Profile;
   todayGames: number;
+  priorityGames: number;
   winRate: number;
   waitingMinutes: number;
   checkedInAt: string;
@@ -99,6 +100,7 @@ export function accumulatedWaitingMinutes(
 
 const ALL_COURTS: number[] = DEFAULT_COURTS.map((court) => court.court_number);
 const GROUP_POOL_SIZE = 12;
+const EARLY_CHECK_IN_WINDOW_MS = 30 * 60 * 1000;
 const TODAY_GAMES_WEIGHT = 10000;
 const QUEUE_RANK_WEIGHT = 100;
 const GROUP_REPEAT_WEIGHT = 4000;
@@ -202,7 +204,7 @@ function scoreGroup(
   partnerCounts: Map<string, number>,
   opponentCounts: Map<string, number>
 ) {
-  const todayGamesTotal = group.reduce((sum, player) => sum + player.todayGames, 0);
+  const todayGamesTotal = group.reduce((sum, player) => sum + player.priorityGames, 0);
   const queueRankTotal = group.reduce((sum, player) => sum + player.queueRank, 0);
   const repeatCount = groupRepeatCount(group, partnerCounts, opponentCounts);
   const spread = skillSpread(group);
@@ -226,15 +228,9 @@ function bestGroup(
   partnerCounts: Map<string, number>,
   opponentCounts: Map<string, number>
 ) {
-  const minGames = Math.min(...candidates.map((candidate) => candidate.todayGames));
+  const minGames = Math.min(...candidates.map((candidate) => candidate.priorityGames));
 
-  if (minGames >= 3) {
-    return [...candidates]
-      .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt) || a.profile.id.localeCompare(b.profile.id))
-      .slice(0, 4);
-  }
-
-  const lowestGameCandidates = candidates.filter((candidate) => candidate.todayGames === minGames);
+  const lowestGameCandidates = candidates.filter((candidate) => candidate.priorityGames === minGames);
   const required = [...lowestGameCandidates]
     .sort((a, b) => {
       if (b.waitingMinutes !== a.waitingMinutes) return b.waitingMinutes - a.waitingMinutes;
@@ -243,8 +239,8 @@ function bestGroup(
     .slice(0, Math.min(2, lowestGameCandidates.length));
   const requiredIds = new Set(required.map((candidate) => candidate.profile.id));
   const poolCandidates = candidates
-    .filter((candidate) => candidate.todayGames === minGames)
-    .concat(candidates.filter((candidate) => candidate.todayGames > minGames))
+    .filter((candidate) => candidate.priorityGames === minGames)
+    .concat(candidates.filter((candidate) => candidate.priorityGames > minGames))
     .slice(0, Math.max(GROUP_POOL_SIZE, 4));
   const poolById = new Map(poolCandidates.map((candidate) => [candidate.profile.id, candidate]));
 
@@ -255,7 +251,7 @@ function bestGroup(
   return combinations([...poolById.values()], 4)
     .filter((group) => [...requiredIds].every((id) => group.some((candidate) => candidate.profile.id === id)))
     .filter((group) => {
-      const lowestGameCount = group.filter((candidate) => candidate.todayGames === minGames).length;
+      const lowestGameCount = group.filter((candidate) => candidate.priorityGames === minGames).length;
       return lowestGameCount === Math.min(4, lowestGameCandidates.length);
     })
     .map((group) => ({
@@ -376,6 +372,13 @@ function waitingCandidates({
   }
   const eligibleMemberIds = [...attendanceByMemberId.keys()]
     .filter((memberId) => !occupiedPlayers.has(memberId));
+  const firstCheckIn = Math.min(...[...attendanceByMemberId.values()]
+    .filter((attendance) => {
+      const profile = profileById.get(attendance.member_id);
+      return profile && isEligibleProfile(profile);
+    })
+    .map((attendance) => new Date(attendance.checked_in_at).getTime())
+    .filter(Number.isFinite));
 
   return eligibleMemberIds
     .map((memberId) => profileById.get(memberId))
@@ -389,6 +392,7 @@ function waitingCandidates({
       return {
         profile,
         todayGames: memberTodayGameCount(profile.id, meetingId, matches, players),
+        priorityGames: 0,
         winRate,
         waitingMinutes: att ? accumulatedWaitingMinutes(profile.id, att, matches, players, meetingId, now) : 0,
         checkedInAt: att?.checked_in_at ?? "",
@@ -396,6 +400,11 @@ function waitingCandidates({
         checkInRank: 0
       };
     })
+    .map((candidate) => ({
+      ...candidate,
+      priorityGames: candidate.todayGames -
+        (new Date(candidate.checkedInAt).getTime() - firstCheckIn < EARLY_CHECK_IN_WINDOW_MS ? 1 : 0)
+    }))
     .map((candidate, _index, rows) => ({
       ...candidate,
       checkInRank: [...rows]
@@ -403,7 +412,7 @@ function waitingCandidates({
         .findIndex((row) => row.profile.id === candidate.profile.id)
     }))
     .sort((a, b) => {
-      if (a.todayGames !== b.todayGames) return a.todayGames - b.todayGames;
+      if (a.priorityGames !== b.priorityGames) return a.priorityGames - b.priorityGames;
       if (b.waitingMinutes !== a.waitingMinutes) return b.waitingMinutes - a.waitingMinutes;
       return a.checkedInAt.localeCompare(b.checkedInAt);
     })
@@ -428,7 +437,6 @@ export function selectReplacement(
 
   const candidates = waitingCandidates(input).filter((row) => row.profile.id !== input.departingMemberId);
   if (!candidates.length) return null;
-  const allPlayedThree = candidates.every((row) => row.todayGames >= 3);
   const history = buildHistory(input.matches.filter((row) => row.id !== match.id), input.players);
   const profileById = new Map(input.profiles.map((profile) => [profile.id, profile]));
   const fixed = remaining.map((seat) => {
@@ -439,7 +447,7 @@ export function selectReplacement(
       team: seat.team,
       candidate: {
         profile, winRate: stat && stat.games > 0 ? stat.winRate : profile.is_guest ? profile.seed_win_rate : 0,
-        todayGames: 0, waitingMinutes: 0, checkedInAt: "", queueRank: 0, checkInRank: 0
+        todayGames: 0, priorityGames: 0, waitingMinutes: 0, checkedInAt: "", queueRank: 0, checkInRank: 0
       }
     };
   });
@@ -459,7 +467,8 @@ export function selectReplacement(
       )) ?? 0 : 0
     };
   }).sort((a, b) =>
-    (allPlayedThree ? 0 : a.candidate.todayGames - b.candidate.todayGames || b.candidate.waitingMinutes - a.candidate.waitingMinutes) ||
+    a.candidate.priorityGames - b.candidate.priorityGames ||
+    b.candidate.waitingMinutes - a.candidate.waitingMinutes ||
     a.candidate.checkedInAt.localeCompare(b.candidate.checkedInAt) ||
     a.score.genderPenalty - b.score.genderPenalty ||
     a.repeats - b.repeats ||
