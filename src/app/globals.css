@@ -1104,3 +1104,321 @@ code {
   }
 
 }
+
+/* Dark tournament theme */
+:root {
+  --bg: #001c15;
+  --surface: #002b22;
+  --surface-strong: #07382d;
+  --surface-soft: #0a4033;
+  --text: #f4f7f1;
+  --muted: #9baea5;
+  --line: rgba(179, 255, 209, 0.1);
+  --primary: #bdff2f;
+  --primary-dark: #aef01f;
+  --accent: #ff784f;
+  --warning: #ffd15c;
+  --danger: #ff766e;
+  --tab-height: 76px;
+  --card-radius: 16px;
+  --control-radius: 12px;
+  color-scheme: dark;
+}
+
+body {
+  letter-spacing: -0.01em;
+}
+
+h1,
+h2,
+h3,
+strong {
+  letter-spacing: -0.025em;
+}
+
+h1 {
+  font-size: 1.65rem;
+  font-weight: 850;
+}
+
+h2 {
+  font-size: 1.18rem;
+  font-weight: 850;
+}
+
+input,
+select {
+  border-radius: var(--control-radius);
+  background: var(--surface-strong);
+}
+
+input:focus,
+select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(189, 255, 47, 0.15);
+}
+
+code,
+.court-time-list div {
+  border-radius: var(--control-radius);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+.auth-card {
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+}
+
+.environment-badge {
+  border-color: rgba(189, 255, 47, 0.28);
+  border-radius: 999px;
+  background: rgba(189, 255, 47, 0.1);
+  color: var(--primary);
+}
+
+.brand-mark,
+.plain-brand {
+  border-radius: 12px;
+  background: rgba(189, 255, 47, 0.08);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px rgba(189, 255, 47, 0.25);
+}
+
+.segmented {
+  border-radius: 999px;
+  background: #00271f;
+}
+
+.segmented button {
+  border-radius: 999px;
+}
+
+.segmented button.active {
+  background: var(--primary);
+  color: #102016;
+  box-shadow: 0 5px 18px rgba(189, 255, 47, 0.16);
+}
+
+.form-message {
+  border-radius: var(--control-radius);
+  background: rgba(255, 118, 110, 0.12);
+  color: #ffaaa4;
+}
+
+.topbar {
+  border-bottom-color: var(--line);
+  background: rgba(0, 28, 21, 0.9);
+  padding: 12px 18px;
+  backdrop-filter: blur(18px);
+}
+
+.content {
+  padding: 18px;
+}
+
+.screen {
+  gap: 18px;
+}
+
+.hero-panel,
+.profile-panel,
+.panel,
+.today-focus-panel {
+  border-radius: var(--card-radius);
+  background: var(--surface);
+}
+
+.hero-panel,
+.profile-panel,
+.panel {
+  padding: 18px;
+}
+
+.today-focus-panel {
+  padding: 24px;
+}
+
+.avatar {
+  border-radius: 50%;
+}
+
+.eyebrow,
+.match-card .court-name,
+.player-result-rate {
+  color: var(--primary);
+}
+
+.attendance-badge,
+.status-pill,
+.count-chip,
+.status-pill.scheduled {
+  background: var(--surface-strong);
+}
+
+.attendance-badge.active,
+.status-pill.in_progress {
+  background: var(--primary);
+  color: #102016;
+}
+
+.status-pill.finished {
+  background: rgba(189, 255, 47, 0.12);
+  color: var(--primary);
+}
+
+.metric,
+.full-button,
+.small-button,
+.icon-button {
+  border-radius: var(--control-radius);
+  background: var(--surface-strong);
+}
+
+.primary,
+.icon-button.primary,
+.small-button.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #102016;
+}
+
+.danger,
+.icon-button.danger,
+.full-button.danger {
+  border-color: rgba(255, 118, 110, 0.24);
+  background: rgba(255, 118, 110, 0.1);
+  color: var(--danger);
+}
+
+.icon-button.active {
+  border-color: var(--primary);
+  background: rgba(189, 255, 47, 0.1);
+  color: var(--primary);
+}
+
+.match-card {
+  border-left: 3px solid var(--primary);
+  border-radius: var(--card-radius);
+  background: var(--surface-strong);
+  padding: 16px;
+}
+
+.team-row {
+  background: var(--surface);
+}
+
+.team-row .team-label {
+  border-radius: 10px;
+  background: rgba(189, 255, 47, 0.12);
+  color: var(--primary);
+}
+
+.player-result-card,
+.ranking-row,
+.attendance-row,
+.record-row,
+.member-card,
+.test-user-card,
+.test-court-card,
+.court-card {
+  border-radius: var(--card-radius);
+  background: var(--surface-strong);
+}
+
+.member-card.guest {
+  border-color: rgba(255, 209, 92, 0.24);
+  background: rgba(255, 209, 92, 0.06);
+}
+
+.member-group.guest {
+  border-color: rgba(255, 209, 92, 0.24);
+}
+
+.player-result-badge {
+  background: var(--surface);
+}
+
+.player-result-badge.result-승 {
+  background: rgba(189, 255, 47, 0.12);
+  color: var(--primary);
+}
+
+.player-result-badge.result-무 {
+  background: rgba(255, 209, 92, 0.12);
+  color: var(--warning);
+}
+
+.player-result-badge.result-패 {
+  background: rgba(255, 118, 110, 0.12);
+  color: #ffaaa4;
+}
+
+.player-time-grid > div,
+.rank-number {
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.empty.large {
+  border-radius: var(--card-radius);
+  background: rgba(7, 56, 45, 0.45);
+}
+
+.dialog-box {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.bottom-tabs {
+  border-top-color: var(--line);
+  background: rgba(0, 42, 33, 0.96);
+  padding-inline: 10px;
+  backdrop-filter: blur(18px);
+}
+
+.bottom-tabs button {
+  border-radius: 12px;
+  color: #a5b5ad;
+}
+
+.bottom-tabs button.active {
+  background: transparent;
+  color: var(--primary);
+}
+
+.bottom-tabs button.active svg {
+  filter: drop-shadow(0 0 7px rgba(189, 255, 47, 0.35));
+}
+
+.toast {
+  border: 1px solid rgba(189, 255, 47, 0.18);
+  border-radius: 14px;
+  background: #0a3329;
+  color: var(--text);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding: 16px;
+  }
+
+  .topbar {
+    padding-inline: 16px;
+  }
+
+  .top-actions {
+    gap: 5px;
+  }
+
+  .top-actions .icon-button {
+    width: 48px;
+    min-height: 50px;
+  }
+
+  .top-actions .icon-button span {
+    font-size: 0.76rem;
+  }
+}
