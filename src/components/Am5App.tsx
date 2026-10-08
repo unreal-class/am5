@@ -2604,8 +2604,8 @@ export function Am5App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="plain-brand" type="button" onClick={() => setTab("today")}>
-          AM5
+        <button className="plain-brand" title="홈" aria-label="홈" type="button" onClick={() => setTab("today")}>
+          <Image className="header-logo" src={am5Logo} alt="" priority />
         </button>
         <div className="top-actions">
           {isAdmin && (
