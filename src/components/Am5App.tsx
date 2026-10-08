@@ -58,6 +58,7 @@ import {
 import { buildStats, getRankings } from "@/lib/stats";
 import { accumulatedWaitingMinutes } from "@/lib/scheduler";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { buildWaitingMemberRows } from "@/lib/waiting-list";
 
 type Tab = "today" | "results" | "records" | "ranking" | "me" | "admin" | "members" | "monitor" | "operations" | "test" | "courts";
 type LivePage = "current" | "matches" | "players";
@@ -1471,6 +1472,28 @@ export function Am5App() {
     }
     return count;
   }, [todayActiveAttendanceByMemberId, profileById, activeMatchMemberIds]);
+  const waitingMemberRows = useMemo(
+    () => buildWaitingMemberRows({
+      profiles,
+      attendances: todayAttendances,
+      matches,
+      players: matchPlayers,
+      meetingId: todayMeeting?.id ?? "",
+      activeMatchMemberIds,
+      todayGameCountByMemberId,
+      now: waitingClock
+    }),
+    [
+      activeMatchMemberIds,
+      matchPlayers,
+      matches,
+      profiles,
+      todayAttendances,
+      todayGameCountByMemberId,
+      todayMeeting?.id,
+      waitingClock
+    ]
+  );
   const occupiedCourtNumbers = useMemo(
     () => new Set(
       todayMatches
@@ -2667,6 +2690,31 @@ export function Am5App() {
                   <h1>현재 모든 코트에서 경기 중입니다</h1>
                 ) : null}
                 <p className="muted">대기 인원 {waitingPresentCount}명 | 가용 코트 {availableCourtsNowCount}면</p>
+                <div className="waiting-roster">
+                  <div className="section-head">
+                    <h2>현재 대기자</h2>
+                    <span className="count-chip">{waitingMemberRows.length}명</span>
+                  </div>
+                  <div className="waiting-roster-list">
+                    {waitingMemberRows.map((row, index) => (
+                      <div className={classNames("waiting-roster-row", row.memberId === profile.id && "mine")} key={row.memberId}>
+                        <div className="waiting-member-name">
+                          <span className="waiting-rank">{index + 1}</span>
+                          <strong>{row.name}</strong>
+                          {row.memberId === profile.id && <small>나</small>}
+                        </div>
+                        <div className="waiting-stat">
+                          <span>경기수</span>
+                          <strong>{row.games}경기</strong>
+                        </div>
+                        <div className="waiting-stat">
+                          <span>대기시간</span>
+                          <strong>{row.waitingMinutes}분</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <div className="quick-actions single">
                   <button className="full-button danger" disabled={busy} type="button" onClick={() => checkOut()}>
                     <DoorOpen size={19} />

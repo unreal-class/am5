@@ -1414,6 +1414,89 @@ code,
   filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.3));
 }
 
+.waiting-roster {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.waiting-roster-list {
+  display: grid;
+  gap: 8px;
+}
+
+.waiting-roster-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--surface-strong);
+  padding: 12px;
+}
+
+.waiting-roster-row.mine {
+  border-color: rgba(189, 255, 47, 0.4);
+  background: rgba(189, 255, 47, 0.08);
+}
+
+.waiting-member-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.waiting-member-name strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waiting-member-name small,
+.waiting-rank {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(189, 255, 47, 0.12);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.waiting-rank {
+  width: 24px;
+  height: 24px;
+}
+
+.waiting-member-name small {
+  min-height: 21px;
+  padding: 0 7px;
+}
+
+.waiting-stat {
+  display: grid;
+  gap: 3px;
+  min-width: 58px;
+  text-align: right;
+}
+
+.waiting-stat span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.waiting-stat strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
 .toast {
   border: 1px solid rgba(189, 255, 47, 0.18);
   border-radius: 14px;
